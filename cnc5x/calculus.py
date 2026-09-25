@@ -89,15 +89,17 @@ def unit_derivatives(d):
     return np.stack([o0, o1, o2, o3])
 
 
-def acos_derivatives(d):
+def acos_derivatives(d, rho=None):
     """θ = arccos(z) 的 0..3 阶导数，d = [z, z', z'', z''']，形状 (4, ...)。
 
     外函数 arccos 的导数为 −1/ρ、−z/ρ³、−(1 + 2z²)/ρ⁵（ρ = √(1 − z²)），再用 compose 复合。
     z = ±1 时 ρ = 0，导数没有定义。
+    z 接近 ±1 时，1 − z² 会被舍入成 0（z 离 1 小于 1e-16 时就会这样），而 ρ 本身并不小于 1e-8。
+    z 是单位向量的一个分量时，调用者应传入另外两个分量的模作为 ρ，它没有这种相消。
     """
     z = d[0]
-    rho = np.sqrt(1 - z**2)
-    outer = np.stack([np.arccos(z), -1 / rho, -z / rho**3, -(1 + 2 * z**2) / rho**5])
+    rho = np.sqrt(1 - z**2) if rho is None else rho
+    outer = np.stack([np.arctan2(rho, z), -1 / rho, -z / rho**3, -(1 + 2 * z**2) / rho**5])
     return compose(outer[..., None], d[1], d[2], d[3])[..., 0]
 
 

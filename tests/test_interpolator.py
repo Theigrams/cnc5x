@@ -35,7 +35,7 @@ class SingleCurve(ToolPath):
 
 def test_straight_line_feed():
     path = LinearPath([[0, 0, 0], [30, 40, 0]])
-    profile, _ = schedule(path, v_max=20, a_max=200, j_max=4000, Ts=0.001)
+    profile, _, _ = schedule(path, v_max=20, a_max=200, j_max=4000, Ts=0.001)
     commands = interpolate(path, profile, Ts=0.001)
     assert np.allclose(np.diff(commands.t), 0.001)
     assert np.allclose(commands.position[0], [0, 0, 0]) and np.allclose(commands.position[-1], [30, 40, 0])
@@ -48,7 +48,7 @@ def test_straight_line_feed():
 def test_tangential_motion_equals_feed_profile():
     # 对弧长求导后 |C_s| = 1、C_s·C_ss = 0 严格成立，所以刀尖的切向量就是进给轮廓
     path = CurvePath(CURVE, chord_error=1e-3)
-    profile, _ = schedule(path, v_max=100, a_max=1000, j_max=20000, Ts=0.001)
+    profile, _, _ = schedule(path, v_max=100, a_max=1000, j_max=20000, Ts=0.001)
     commands = interpolate(path, profile, Ts=0.001)
     feed, acceleration, jerk = metrics.tangential(commands.tip)
     moving = commands.feed[1] > 1e-3
@@ -75,7 +75,7 @@ def test_five_axis_forward_kinematics_and_derivatives():
     axes = np.column_stack([0.3 * np.sin(2 * t) + 0.05, 0.2 * t + 0.1, np.ones_like(t)]) + rng.normal(0, 0.01, (9, 3))
     path = CurvePath(pose_spline(points, axes), chord_error=1e-3)
     machine = TableTilting("BC", offset=[0, 0, 20])
-    profile, _ = schedule(path, v_max=40, a_max=400, j_max=4000, Ts=0.002)
+    profile, _, _ = schedule(path, v_max=40, a_max=400, j_max=4000, Ts=0.002)
     commands = interpolate(path, profile, Ts=0.002, machine=machine)
     p, o = machine.forward(commands.q[0])
     assert np.allclose(p, commands.position, atol=1e-9) and np.allclose(o, commands.orientation, atol=1e-12)
@@ -84,7 +84,7 @@ def test_five_axis_forward_kinematics_and_derivatives():
     aligned = align_period(profile, 0.002)
     h = 1e-5
     for t0 in commands.t[[37, 150, 300]]:
-        feed = aligned(np.array([t0 - h, t0, t0 + h])).T
+        feed = aligned(np.array([t0 - h, t0, t0 + h]))
         d = compose(path.derivatives(feed[0]), feed[1], feed[2], feed[3])
         q = machine.axis_motion(d[..., :3], d[..., 3:])
         for k in range(3):
@@ -108,7 +108,7 @@ def test_pure_orientation_move():
 def test_taylor_interpolation_fluctuation():
     profile = seven_phase(CURVE.length, 0, 0, 100, 1000, 20000)
     aligned = align_period(profile, 0.001)
-    s = aligned(np.arange(round(aligned.duration / 0.001) + 1) * 0.001)[:, 0]  # 指令弧长
+    s = aligned(np.arange(round(aligned.duration / 0.001) + 1) * 0.001)[0]  # 指令弧长
     errors = []
     for order in (1, 2):
         u, points = taylor_interpolate(CURVE, profile, Ts=0.001, order=order)

@@ -1,26 +1,36 @@
-"""评价指标：路径偏差、拐角误差、弓高误差、进给波动、切向量、轴峰值、连接处的几何连续性。"""
+"""评价指标：路径偏差、拐角误差、弓高误差、进给波动、切向速度（及加速度、jerk）、轴峰值、连接处的连续性。"""
 
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .calculus import compose, inverse_derivatives, speed_derivatives
+from .calculus import speed_derivatives
 
 
 def path_deviation(points, vertices):
-    """每个点到折线（有限线段组成）的最近距离，points (M, D)，vertices (N, D)，返回 (M,)。"""
+    """每个点到折线（有限线段组成）的最近距离，points (M, D)，vertices (N, D)，返回 (M,)。
+
+    与 corner_error 方向相反：这里是"插补点离折线多远"，那里是"折线顶点离插补点多远"。
+    折线可以有重复顶点（read_cl 不去重）：零长度的线段退化为一个点，投影参数取 0。
+    """
     points = np.asarray(points, dtype=float)
     a = np.asarray(vertices, dtype=float)[:-1]  # (N−1, D) 各线段起点
     ab = np.diff(np.asarray(vertices, dtype=float), axis=0)  # (N−1, D) 各线段方向
+    length2 = np.sum(ab * ab, axis=-1)
     result = np.empty(len(points))
     for start in range(0, len(points), 2048):  # 分块，避免 M×N 的中间数组太大
         p = points[start : start + 2048, None, :]  # (m, 1, D)
-        t = np.clip(np.sum((p - a) * ab, axis=-1) / np.sum(ab * ab, axis=-1), 0.0, 1.0)  # (m, N−1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            t = np.where(length2 > 0, np.sum((p - a) * ab, axis=-1) / length2, 0.0)  # (m, N−1)
+        t = np.clip(t, 0.0, 1.0)
         result[start : start + 2048] = np.linalg.norm(p - a - t[..., None] * ab, axis=-1).min(axis=1)
     return result
 
 
 def corner_error(vertices, points):
-    """每个 G01 顶点到插补点的最近距离 (N,)，衡量拐角被“切”掉多少（受采样间隔影响）。"""
+    """每个 G01 顶点到插补点的最近距离 (N,)，衡量拐角被“切”掉多少（受采样间隔影响）。
+
+    与 path_deviation 方向相反，参数顺序也相反：先顶点、后插补点。
+    """
     distance, _ = cKDTree(points).query(vertices)
     return distance
 
@@ -71,28 +81,21 @@ def axis_report(q, limits):
 
 
 def junction_jumps(curves):
-    """相邻曲线段连接处的跳变 (n−1, 3)：位置、单位切向、曲率向量（对弧长的 0、1、2 阶导数）。
+    """相邻曲线段连接处的跳变：对弧长的 0、1、2 阶导数在两侧之差的模。
 
-    三列都为零即 G² 连续。
+    三轴返回 (n−1, 3)：位置、单位切向、曲率向量的跳变，三列都为零即 G² 连续。
+    五轴（6 维刀位曲线）返回 (n−1, 6)：前三列同上，是刀尖的；后三列是刀轴 o、o_s、o_ss 的跳变，
+    导数也是对刀尖弧长求的（单位 1、rad/mm、rad/mm²），全为零即刀轴对刀尖弧长 C² 连续。
+    刀尖与刀轴分开列出，不合成一个数：毫米和弧度不能相加。
     """
     jumps = []
     for left, right in zip(curves[:-1], curves[1:]):
-        a = _arc_length_derivatives(left, left.domain[1])
-        b = _arc_length_derivatives(right, right.domain[0])
-        jumps.append([np.linalg.norm(_tip(b[k] - a[k])) for k in range(3)])
+        jump = right.derivatives_by_length(right.domain[0])[:3] - left.derivatives_by_length(left.domain[1])[:3]
+        row = np.linalg.norm(_tip(jump), axis=-1)
+        if jump.shape[-1] == 6:
+            row = np.concatenate([row, np.linalg.norm(jump[..., 3:], axis=-1)])
+        jumps.append(row)
     return np.array(jumps)
-
-
-def rms(values):
-    """均方根。"""
-    return float(np.sqrt(np.mean(np.square(values))))
-
-
-def _arc_length_derivatives(curve, u):
-    """曲线在参数 u 处对弧长 s 的导数栈 [C, C_s, C_ss, C_sss]。"""
-    s1, s2, s3 = curve.arc_derivatives(u)
-    u1, u2, u3 = inverse_derivatives(s1, s2, s3)
-    return compose(curve.derivatives(u), u1, u2, u3)
 
 
 def _tip(x):

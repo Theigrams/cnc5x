@@ -5,6 +5,7 @@ from scipy.integrate import quad
 from scipy.optimize import brentq
 
 from cnc5x import NURBS, Bezier, BSpline, Line, Reparameterized, SubCurve
+from cnc5x.tolerances import ARC_LENGTH
 
 # 与 cnc_interpolation/tests/test_curve_bspline.py 相同的曲线
 CONTROL_POINTS = np.array([[5.0, 5.0], [10.0, 10.0], [20.0, 15.0], [35.0, 15.0], [45.0, 10.0], [50.0, 5.0]])
@@ -57,8 +58,9 @@ def test_arc_length_table(bspline):
     assert np.isclose(bspline.length, reference_length(bspline, 0, 1), rtol=1e-12)
     for s in np.linspace(0.5, bspline.length - 0.5, 7):
         u_exact = brentq(lambda x: reference_length(bspline, 0, x) - s, 0, 1, xtol=1e-15)
-        assert abs(bspline.u_at_length(s) - u_exact) < 1e-10
-        assert abs(bspline.length_at(u_exact) - s) < 1e-9
+        # 弧长表的约定：每一段的误差（换算成长度）不超过 tolerances.ARC_LENGTH
+        assert abs(bspline.u_at_length(s) - u_exact) * bspline.speed(u_exact) < ARC_LENGTH
+        assert abs(bspline.length_at(u_exact) - s) < ARC_LENGTH
 
 
 def test_equal_length_samples(bspline):
@@ -162,3 +164,41 @@ def test_reparameterized_matches_sympy():
     x0 = 0.45
     expected = np.array([[float(sp.diff(c, x, k).subs(x, x0)) for c in C] for k in range(4)])
     assert np.allclose(Reparameterized(curve, mapping).derivatives(x0), expected, rtol=1e-12)
+
+
+def test_arc_length_table_on_uneven_spline():
+    # 点距相差上千倍的插值样条：速度在 [~1, ~1e3] 间剧烈变化，固定分段的弧长表在这里会差好几毫米
+    x = np.cumsum(np.r_[0, np.geomspace(0.01, 30, 12), np.geomspace(30, 0.01, 12)])
+    points = np.column_stack([x, np.sin(x / 7) * 5])
+    from cnc5x import chord_parameters, interpolate_bspline
+
+    curve = interpolate_bspline(points, chord_parameters(points))
+    rng = np.random.default_rng(3)
+    for u in np.sort(rng.uniform(0, 1, 6)):
+        inner = curve.breaks[(curve.breaks > 0) & (curve.breaks < u)]
+        exact = quad(lambda t: curve.speed(t), 0, u, points=inner, limit=500, epsabs=1e-12, epsrel=1e-13)[0]
+        assert abs(curve.length_at(u) - exact) < 10 * ARC_LENGTH  # 各段积分误差会累加，但远小于逐段容差之和
+        assert abs(curve.u_at_length(exact) - u) * curve.speed(u) < 10 * ARC_LENGTH  # 反函数误差换算成长度
+
+
+class CountingBSpline(BSpline):
+    calls = 0
+
+    def _derivatives(self, u, order):
+        CountingBSpline.calls += 1
+        return super()._derivatives(u, order)
+
+
+def test_composite_curves_evaluate_components_once():
+    # 导数栈一次求出：五轴刀位曲线求一次导数栈，刀尖、刀轴两条 B 样条各只求值一次
+    from cnc5x import PoseCurve, UnitDirection
+
+    tip = CountingBSpline(CONTROL_POINTS[:, [0, 1, 1]] * [1, 1, 0], 3, KNOTS)
+    axis = CountingBSpline(np.c_[np.linspace(0, 0.3, 6), np.zeros(6), np.ones(6)], 3, KNOTS)
+    pose = PoseCurve(tip, UnitDirection(axis))
+    CountingBSpline.calls = 0
+    pose.derivatives(np.linspace(0, 1, 50))
+    assert CountingBSpline.calls == 2
+    CountingBSpline.calls = 0
+    pose.derivatives_by_length(np.linspace(0, 1, 50))  # 弧长的导数从同一个导数栈里算
+    assert CountingBSpline.calls == 2

@@ -22,17 +22,18 @@ Curve ─▶ ToolPath ─▶ bidirectional_scan ─▶ schedule ─▶ interpola
 
 | 模块 | 职责 | 可以依赖 |
 |---|---|---|
+| `tolerances.py` | 全库的数值容差，每个值旁边写明理由 | 无 |
 | `calculus.py` | 三阶链式法则 `compose`、Leibniz `product`，以及单位化、反函数、arccos、辐角的导数 | numpy |
 | `geometry.py` | 单位化、夹角、折线切向与转角、旋转矩阵、曲率 | numpy |
-| `curves.py` | `Curve` 基类、弧长表，Line、Bezier、BSpline、NURBS、SubCurve、Reparameterized | calculus、geometry、scipy |
-| `orientation.py` | 刀轴曲线：GreatCircle、UnitDirection、DualCurveDirection | curves |
-| `fitting.py` | 弦长参数化、B 样条插值与最小二乘逼近 | curves、scipy |
+| `curves.py` | `Curve` 基类、自适应弧长表，Line、Bezier、BSpline、NURBS、SubCurve、Reparameterized | calculus、geometry、tolerances、scipy |
+| `orientation.py` | 刀轴曲线：GreatCircle、UnitDirection、DualCurveDirection、SphericalCurve | curves |
+| `fitting.py` | 参数化、B 样条插值与（带约束）最小二乘、Hermite、单调插值、进给修正多项式、球坐标刀轴 | curves、orientation、scipy |
 | `limits.py` | 几何限速、DriveLimits、各轴约束区间、时间缩放倍数 | numpy |
-| `toolpath.py` | PoseCurve、Block、ToolPath 及 PolylinePath、LinearPath、CurvePath | curves、orientation、fitting、limits |
+| `toolpath.py` | PoseCurve、Block、ToolPath 及 PolylinePath、LinearPath、HermiteCornerPath、CurvePath | curves、orientation、fitting、limits |
 | `kinematics.py` | 双转台正逆解与机床轴解析导数 | calculus、geometry |
 | `profiles.py` | 分段恒 jerk 进给轮廓，七段、五段 S 曲线 | scipy |
-| `look_ahead.py`、`scheduler.py` | 双向扫描、整条刀路的速度规划 | profiles |
-| `interpolator.py` | 周期插补 `interpolate`、Taylor 参数插补 | calculus、profiles |
+| `look_ahead.py`、`scheduler.py` | 双向扫描、进给包络、整条刀路的速度规划 | profiles、limits |
+| `interpolator.py` | 周期插补 `interpolate`、Taylor 参数插补、进给修正插补 | calculus、profiles |
 | `metrics.py` | 评价指标 | calculus、scipy |
 | `io.py`、`datasets/` | 刀位文件读取、内置数据 | geometry |
 
@@ -44,17 +45,18 @@ Curve ─▶ ToolPath ─▶ bidirectional_scan ─▶ schedule ─▶ interpola
 1. **导数栈**：形状 `(4, ..., dim)`，`d[k]` 是第 k 阶导数，不是 Taylor 系数。对参数、对弧长、对时间的导数一律用这个形状。
 2. **链式法则只有一处实现**，即 `calculus.compose`。需要复合求导时调用它，不要另写一份。
 3. **曲线接口**：
-   - 子类只需设定 `domain`，并实现 `_derivative(u, order)`；
-   - 外部通过 `curve(u)`、`curve(u, k)`、`curve.derivatives(u)` 使用；
+   - 子类只需设定 `domain`，并实现 `_derivatives(u, order)`，一次返回 0 到 `order` 阶导数叠成的 `(order + 1, ..., dim)`。复合曲线（NURBS、单位化、复合函数）求高阶导数要用到全部低阶导数，一次求一叠才不会重复计算；
+   - 外部通过 `curve(u)`、`curve(u, k)`、`curve.derivatives(u)`、`curve.derivatives_by_length(u)`（对弧长的导数栈）使用；
    - `u` 可以是标量或任意形状的数组，返回形状 `(..., dim)`。
 4. **参数域**保持用户给定的值，不归一化到 [0, 1]。`breaks` 必须包含所有不光滑的点。
-5. **进给轮廓接口**：`profile(t)` 返回 `(..., 4)`，即 `[s, v, a, j]`，另有 `duration`、`length` 两个属性。插补器只依赖这三样。
-6. **刀路接口**：`ToolPath` 的子类负责生成 `self.blocks`，并实现 `get_v_limit(Ts, v_max, a_max, j_max)`，返回 `(n_blocks + 1,)`。
+5. **进给轮廓接口**：`profile(t)` 返回 `(4, ...)`，即 `[s, v, a, j]`（也是导数栈），另有 `duration`、`length` 两个属性。插补器只依赖这三样。
+6. **刀路接口**：`ToolPath` 的子类负责生成 `self.blocks`，并实现 `get_v_limit(Ts, v_max, a_max, j_max)`，返回 `(n_blocks + 1,)`。`schedule` 返回 `(profile, 连接点的弧长位置, 连接点速度)`。
 7. **五轴**：`PoseCurve` 求值得到 6 维 `[p, o]`，6 维的路径一律按五轴处理。进给默认沿刀尖弧长计量，只转刀轴时用 `along="axis"`。
 8. **单位**：内部统一用 mm、s、rad，刀轴由刀尖指向刀柄。
    - 输入输出如果用 degree、mm/min，在边界处显式换算。
    - 毫米和弧度不能直接相加或比较。
 9. **机床约定**：`R_AC = R_x(A) R_z(C)`，`R_BC = R_y(B) R_z(C)`，`[X, Y, Z] = R p + b`，`o = Rᵀ e_z`。约定一变就是另一台机床，要新写一个类，不能改现有的类。
+10. **容差**集中在 `tolerances.py`，公式里不写字面量容差。
 
 ## 4. 代码风格
 
@@ -75,7 +77,10 @@ Curve ─▶ ToolPath ─▶ bidirectional_scan ─▶ schedule ─▶ interpola
 
 ## 5. 数值规范
 
-- **数值计算交给 SciPy**：BSpline、插值、最小二乘、积分、求根、KD 树都用它。不为了去掉依赖而手写底层算法。
+- **哪些交给 SciPy、哪些自己写**，判断标准是：这段代码是否承载某篇论文或教材的算法思想。
+  - 交给 SciPy：B 样条求值与基函数、节点插入、数值积分的节点权重、求根、线性方程组、KD 树。它们是数值内核，自己重写不增加理解，还要处理边界情况。
+  - 自己写：参数化、节点选择、拟合的方程组（插值、最小二乘、约束）、弧长映射、前瞻与速度规划。调用 SciPy 的整套拟合函数会把思想藏进黑盒。
+  - 同一类操作两种处理并存时写明理由（例如 `Bezier.split` 手写 de Casteljau，`BSpline.split` 调 `scipy.interpolate.insert`）。
 - **分母上不加 epsilon。** 遇到零向量、零速度、极点等退化情况，二选一：
   - 显式报错，并说明原因；
   - 按数学定义分情况处理（例如直行的"拐角"、极点处取相邻值）。
@@ -92,7 +97,8 @@ Curve ─▶ ToolPath ─▶ bidirectional_scan ─▶ schedule ─▶ interpola
   - 教材例题；
   - 解析解（圆、直线、多项式）；
   - 与已审阅的旧实现对拍。
-- 测试不依赖网络；用到随机数时固定种子。整套测试保持在 10 秒以内，慢的符号计算改用 mpmath。
+- 测试不依赖网络；用到随机数时每个测试自己建 `np.random.default_rng(种子)`，不共用模块级的随机数生成器。整套测试保持在 10 秒以内，慢的符号计算改用 mpmath。
+- 修 bug 时补一条回归测试，并确认它在修之前会失败。
 - 容差贴近真实精度，断言要有区分度。例如写"二阶比一阶小一个数量级"，而不是让结果贴着阈值过关。
 - 常用命令：
 
@@ -125,7 +131,7 @@ ruff format . && ruff check .
 
 ## 8. 论文复现（`papers/`）
 
-- 目录结构为 `papers/<第一作者><年份>/`，包含 `algorithm.py`、`README.md`，数据放在 `data/`。
+- 目录结构为 `papers/<第一作者><年份>/`，包含 `algorithm.py`、`README.md`。只有这篇论文用的数据放在它的 `data/`；与其他论文共用的数据登记到 `cnc5x/datasets`。
 - `algorithm.py`：继承 `PolylinePath`、`ToolPath` 等库类，只写论文自己的数学，公式编号与原文保持一致。
 - `README.md` 要包含：
   - 完整题录和 DOI（用 paper2 技能核对）；
@@ -153,4 +159,6 @@ ruff format . && ruff check .
 - [ ] 没有引入新的抽象层、全局状态或 epsilon
 - [ ] 公开接口的形状、单位和前提都写在 docstring 里
 - [ ] 新公式有独立参考的测试；pytest 与 ruff 全部通过
-- [ ] README、`docs/数学约定.md`、论文 README 已同步更新
+- [ ] 改了公共接口（签名、返回值、形状）时，在全仓库 grep 旧用法，包括 README、docs、examples、notebooks、papers
+- [ ] README、`docs/数学约定.md`、论文 README、相关 notebook 已同步更新
+- [ ] 暂不实现的想法记进 `docs/路线图.md`

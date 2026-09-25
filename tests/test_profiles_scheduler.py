@@ -39,7 +39,7 @@ def test_biagiotti_example_3_10():
     d = profile.durations
     assert np.isclose(d[:3].sum(), 1.0747, atol=1e-4) and np.isclose(d[3:].sum(), 1.1747, atol=1e-4)
     _, state = dense(profile)
-    assert np.isclose(state[:, 1].max(), 8.4136, atol=1e-4)
+    assert np.isclose(state[1].max(), 8.4136, atol=1e-4)
 
 
 def test_biagiotti_example_3_11_is_not_slower_than_textbook():
@@ -47,7 +47,7 @@ def test_biagiotti_example_3_11_is_not_slower_than_textbook():
     profile = seven_phase(10, v_start=7, v_end=0, v_max=10, a_max=10, j_max=30)
     assert profile.duration <= 1.93837
     _, state = dense(profile)
-    assert np.abs(state[:, 2]).max() <= 10 + 1e-9
+    assert np.abs(state[2]).max() <= 10 + 1e-9
 
 
 @pytest.mark.parametrize(
@@ -58,18 +58,26 @@ def test_profile_properties(length, v0, v1):
     profile = seven_phase(length, v0, v1, v_max, a_max, j_max)
     _, state = dense(profile)
     assert np.isclose(profile.length, length, rtol=1e-9)
-    assert np.allclose(state[0, :3], [0, v0, 0]) and np.allclose(state[-1, 1:3], [v1, 0], atol=1e-9)
-    assert state[:, 1].max() <= v_max + 1e-9
-    assert np.abs(state[:, 2]).max() <= a_max + 1e-9
-    assert np.abs(state[:, 3]).max() <= j_max + 1e-9
-    assert np.all(np.diff(state[:, 0]) >= -1e-12)  # 不倒退
+    assert np.allclose(state[:3, 0], [0, v0, 0]) and np.allclose(state[1:3, -1], [v1, 0], atol=1e-9)
+    assert state[1].max() <= v_max + 1e-9
+    assert np.abs(state[2]).max() <= a_max + 1e-9
+    assert np.abs(state[3]).max() <= j_max + 1e-9
+    assert np.all(np.diff(state[0]) >= -1e-12)  # 不倒退
 
 
 def test_five_phase_respects_acceleration():
     profile = five_phase(10, 1, 0, 10, a_max=10, j_max=30)
     _, state = dense(profile)
-    assert np.abs(state[:, 2]).max() <= 10 + 1e-9
+    assert np.abs(state[2]).max() <= 10 + 1e-9
     assert np.count_nonzero(profile.jerks == 0) <= 1  # 只有匀速段 jerk 为零
+    edge = five_phase(10, 10**2 / 30, 0, 5, a_max=10, j_max=30)  # Δv 恰好等于 A²/J：峰值加速度恰好是 A
+    assert np.isclose(np.abs(dense(edge)[1][2]).max(), 10, rtol=1e-9)
+
+
+def test_five_phase_rejects_large_speed_change():
+    # Δv = 5 > A²/J = 10/3：没有匀加速段时峰值加速度 √(JΔv) = 12.2 > 10，以前会静默超限
+    with pytest.raises(ValueError):
+        five_phase(10, 5, 0, 5, a_max=10, j_max=30)
 
 
 def test_infeasible_boundary_speeds_raise():
@@ -81,7 +89,7 @@ def test_profile_is_continuous_across_phases():
     profile = concatenate([seven_phase(3, 0, 2, 4, 10, 30), seven_phase(2, 2, 1, 4, 10, 30)])
     t = profile.times[1:-1]
     left, right = profile(t - 1e-9), profile(t + 1e-9)
-    assert np.allclose(left[:, :3], right[:, :3], atol=1e-7)
+    assert np.allclose(left[:3], right[:3], atol=1e-7)
     assert np.isclose(profile.length, 5)
 
 
@@ -89,7 +97,7 @@ def test_scaled_and_aligned():
     profile = seven_phase(10, 0, 0, 5, 10, 30)
     slow = profile.scaled(2.0)
     t = np.linspace(0, profile.duration, 50)
-    assert np.allclose(slow(2 * t), profile(t) / [1, 2, 4, 8])
+    assert np.allclose(slow(2 * t), profile(t) / np.array([1, 2, 4, 8])[:, None])
     aligned = align_period(profile, 0.001)
     n = aligned.duration / 0.001
     assert np.isclose(n, round(n)) and aligned.duration >= profile.duration
@@ -118,12 +126,12 @@ def test_scan_makes_every_block_feasible(phases):
     for i, L in enumerate(lengths):
         profile = plan(L, v[i], v[i + 1], 5, 10, 30)
         _, state = dense(profile, 2001)
-        assert np.abs(state[:, 2]).max() <= 10 + 1e-9
+        assert np.abs(state[2]).max() <= 10 + 1e-9
 
 
 def test_schedule_on_polyline():
     path = LinearPath([[0, 0], [10, 0], [10, 10], [0, 10]])
-    profile, v = schedule(path, v_max=50, a_max=1000, j_max=20000, Ts=0.001)
+    profile, s, v = schedule(path, v_max=50, a_max=1000, j_max=20000, Ts=0.001)
     assert isinstance(profile, Profile)
     assert np.isclose(profile.length, path.length)
     assert v.shape == (4,) and v[0] == 0 and v[-1] == 0

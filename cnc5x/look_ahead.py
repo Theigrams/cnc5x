@@ -27,6 +27,13 @@ def bidirectional_scan(lengths, v_limit, a_max, j_max, phases=7):
     lengths (n,) 为各 block 长度，v_limit (n+1,) 为各连接点的速度上限（首尾通常为 0）。
     反向扫描保证每个 block 来得及减速到下一个连接点，正向扫描保证来得及加速，
     返回修正后的连接点速度 (n+1,)。
+
+    为什么两遍就够：记 Fᵢ(x) = reachable_velocity(x, Lᵢ)。过渡距离 D(a, b) 关于两端对称
+    （速度曲线关于中点对称），所以"从 v[i] 加速到 v[i+1] 来得及"与"从 v[i+1] 减速到 v[i]
+    来得及"是同一个条件：block i 可行 ⇔ v[i] ≤ Fᵢ(v[i+1]) 且 v[i+1] ≤ Fᵢ(v[i])。
+    反向扫描后前一半条件全部成立。正向扫描把 v[i+1] 压到 Fᵢ(v[i]) 时，由于 F 递增且 F(x) ≥ x，
+    有 Fᵢ(v[i+1]) = Fᵢ(Fᵢ(v[i])) ≥ v[i]，前一半条件仍然成立；其余连接点的速度只降不升，
+    也不会破坏已经成立的条件。
     """
     v = np.array(v_limit, dtype=float)
     n = len(lengths)

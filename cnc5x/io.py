@@ -1,5 +1,6 @@
 """读取刀位文件（CL data）。"""
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -17,8 +18,9 @@ def read_cl(path):
     rows = []
     for line in Path(path).read_text(errors="replace").splitlines():
         line = line.strip()
-        if line.upper().startswith("GOTO/"):
-            line = line[5:]
+        goto = re.match(r"GOTO\s*/", line, re.IGNORECASE)  # "GOTO/" 与 "GOTO / " 两种写法都有
+        if goto:
+            line = line[goto.end() :]
         elif not line or not (line[0].isdigit() or line[0] in "+-."):
             continue
         rows.append([float(x) for x in line.replace(",", " ").split()])

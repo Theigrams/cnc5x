@@ -1,3 +1,4 @@
+import mpmath as mp
 import numpy as np
 import pytest
 import sympy as sp
@@ -56,15 +57,23 @@ def test_inverse_derivatives_of_exponential():
     assert np.allclose([u1, u2, u3], [1 / s, -1 / s**2, 2 / s**3], rtol=1e-14)
 
 
-def test_acos_and_arg_derivatives_match_sympy():
-    raw = sp.Matrix([sp.Rational(3, 10) + u + u**2 / 3, sp.Rational(1, 2) - u**2 + u**3 / 5, 1 + u / 4])
-    o = raw / sp.sqrt(raw.dot(raw))
-    u0 = 0.37
-    stack = sympy_stack(o, u0)
-    tilt = calculus.acos_derivatives(stack[:, 2])
-    c = calculus.arg_derivatives(stack[:, 1] + 1j * stack[:, 0])
-    assert np.allclose(tilt, sympy_stack(sp.acos(o[2]), u0)[:, 0], rtol=1e-12)
-    assert np.allclose(c, sympy_stack(sp.atan2(o[0], o[1]), u0)[:, 0], rtol=1e-12)
+def test_acos_and_arg_derivatives_match_mpmath():
+    # 参考值：mpmath 40 位精度数值求导（符号求导在这里要 2 秒，按约定改用 mpmath）
+    mp.mp.dps = 40
+
+    def axis(x):
+        raw = [mp.mpf(3) / 10 + x + x**2 / 3, mp.mpf(1) / 2 - x**2 + x**3 / 5, 1 + x / 4]
+        norm = mp.sqrt(sum(r**2 for r in raw))
+        return [r / norm for r in raw]
+
+    u0 = mp.mpf("0.37")
+    stack = np.array([[float(mp.diff(lambda x, i=i: axis(x)[i], u0, k)) for i in range(3)] for k in range(4)])
+    expected_tilt = [float(mp.diff(lambda x: mp.acos(axis(x)[2]), u0, k)) for k in range(4)]
+    expected_c = [float(mp.diff(lambda x: mp.atan2(axis(x)[0], axis(x)[1]), u0, k)) for k in range(4)]
+    assert np.allclose(calculus.acos_derivatives(stack[:, 2]), expected_tilt, rtol=1e-12)
+    rho = np.hypot(stack[0, 0], stack[0, 1])  # 单位向量另外两个分量的模，没有 1 − z² 的相消
+    assert np.allclose(calculus.acos_derivatives(stack[:, 2], rho=rho), expected_tilt, rtol=1e-12)
+    assert np.allclose(calculus.arg_derivatives(stack[:, 1] + 1j * stack[:, 0]), expected_c, rtol=1e-12)
 
 
 def test_unit_derivatives_rejects_zero_vector():

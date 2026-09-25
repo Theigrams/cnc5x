@@ -43,7 +43,7 @@ def test_junction_is_the_closest_point_to_the_corner():
 
 @pytest.mark.parametrize("name, path, phases", make_paths())
 def test_pipeline_respects_limits(name, path, phases):
-    profile, v = cx.schedule(path, V_MAX, A_MAX, J_MAX, TS, phases=phases)
+    profile, _, v = cx.schedule(path, V_MAX, A_MAX, J_MAX, TS, phases=phases)
     commands = cx.interpolate(path, profile, TS)
     feed, acceleration, jerk = metrics.tangential(commands.tip)
     assert np.nanmax(feed) <= V_MAX * (1 + 1e-9)
@@ -51,3 +51,39 @@ def test_pipeline_respects_limits(name, path, phases):
     assert np.nanmax(np.abs(jerk)) <= J_MAX * (1 + 1e-6)
     assert np.all(v <= path.get_v_limit(TS, V_MAX, A_MAX, J_MAX) + 1e-9)
     assert np.allclose(commands.position[[0, -1]], path.points[[0, -1]])
+
+
+@pytest.mark.parametrize(
+    "name, make",
+    [
+        ("butterfly", lambda p: SmoothedPath(p, 0.02, 0.5)),  # 原来 6 处停车
+        ("griffen", lambda p: SmoothedPath(p, 0.02, 0.5)),  # 原来 15 处
+        ("butterfly", lambda p: CcrPath(p, 0.02)),  # 原来 2 处；Xu2018 在 griffen 上本来就没有
+    ],
+)
+def test_no_stop_at_sharp_corners(name, make):
+    # 弓高容差超过 2ρ 的急弯处，旧的弓高限速给出 v = 0（butterfly 上 Zhao 2013 有 6 处）。
+    # 停车只可能来自连接点限速：双向扫描从正的速度出发，不会把它压成零，所以只查限速。
+    path = make(cx.datasets.load_dataset(name).points)
+    assert np.all(path.get_v_limit(TS, V_MAX, A_MAX, J_MAX)[1:-1] > 0)
+
+
+STRAIGHT = [[0, 0], [1, 0], [2, 0], [3, 0], [3, 2], [3, 4], [5, 4]]  # 含三个转角为 0 的"拐角"
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize(
+    "path, phases",
+    [
+        (SmoothedPath(STRAIGHT, 0.01, 0.5), 5),
+        (CcrPath(STRAIGHT, 0.01), 7),
+        (cx.LinearPath(STRAIGHT), 7),
+        (cx.HermiteCornerPath(STRAIGHT, 0.01, 1e-3), 7),
+    ],
+)
+def test_straight_corners_without_nan(path, phases):
+    v_limit = path.get_v_limit(TS, V_MAX, A_MAX, J_MAX)
+    assert not np.any(np.isnan(v_limit))
+    assert np.all(v_limit[[1, 2, 4]] == V_MAX)  # 顶点 1、2、4 处直行，只受 v_max 限制
+    profile, _, _ = cx.schedule(path, V_MAX, A_MAX, J_MAX, TS, phases=phases)
+    assert np.all(np.isfinite(cx.interpolate(path, profile, TS).tip))

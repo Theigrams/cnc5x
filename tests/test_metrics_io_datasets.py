@@ -73,6 +73,33 @@ def test_five_axis_dataset_runs_through_pipeline():
 
     data = datasets.load_dataset("horseshoe_planar_sweep")
     path = cx.CurvePath(cx.pose_spline(data.points, data.axes), chord_error=1e-3)
-    profile, _ = schedule(path, v_max=50, a_max=500, j_max=5000, Ts=0.001)
+    profile, _, _ = schedule(path, v_max=50, a_max=500, j_max=5000, Ts=0.001)
     commands = interpolate(path, profile, Ts=0.001, machine=cx.TableTilting("AC"))
     assert commands.q.shape == (4, len(commands.t), 5) and np.all(np.isfinite(commands.q))
+
+
+def test_path_deviation_with_repeated_vertices():
+    # 重复顶点给出零长度线段；以前一处 0/0 会让全部结果变成 nan
+    polyline = [[0, 0], [5, 0], [5, 0], [5, 0], [5, 5], [0, 5]]
+    deviation = metrics.path_deviation([[1, 1], [2, 2], [7, 3]], polyline)
+    assert np.allclose(deviation, [1, 2, 2])
+
+
+def test_junction_jumps_see_the_tool_axis():
+    import cnc5x as cx
+
+    # 刀尖是一条直线（G² 光滑），刀轴在接点处转向另一个大圆
+    first = cx.PoseCurve(cx.Line([0, 0, 0], [1, 0, 0]), cx.GreatCircle([0, 0, 1], [0.5, 0, 1]))
+    second = cx.PoseCurve(cx.Line([1, 0, 0], [2, 0, 0]), cx.GreatCircle([0.5, 0, 1], [0.5, 0.5, 1]))
+    jumps = metrics.junction_jumps([first, second])
+    assert jumps.shape == (1, 6)
+    assert np.allclose(jumps[0, :3], 0) and np.isclose(jumps[0, 3], 0)
+    a, b = first.derivatives_by_length(1.0), second.derivatives_by_length(0.0)  # 独立地直接相减
+    assert np.isclose(jumps[0, 4], np.linalg.norm(b[1, 3:] - a[1, 3:])) and jumps[0, 4] > 0.5
+
+
+def test_read_cl_goto_with_spaces(tmp_path):
+    path = tmp_path / "path.cls"
+    path.write_text("GOTO/1,2,3\nGOTO / 4,5,6\ngoto/7,8,9\n")
+    points, _ = read_cl(path)
+    assert np.allclose(points, [[1, 2, 3], [4, 5, 6], [7, 8, 9]])

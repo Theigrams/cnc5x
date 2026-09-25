@@ -12,7 +12,7 @@ from cnc5x import (
     fit_bspline,
     interpolate_bspline,
 )
-from cnc5x.fitting import averaged_knots
+from cnc5x.fitting import approximation_knots, averaged_knots
 
 
 def test_great_circle():
@@ -79,7 +79,24 @@ def test_interpolation_passes_through_points_and_reproduces_cubics():
 
 def test_least_squares_fit_reproduces_cubics():
     u = np.linspace(0, 1, 40)
-    curve = fit_bspline(cubic_b(u), u, n_controls=8)
+    curve = fit_bspline(cubic_b(u), u, approximation_knots(u, 8, 3))
     assert len(curve.control_points) == 8
     t = np.linspace(0, 1, 17)
     assert np.allclose(curve(t), cubic_b(t))
+
+
+def test_great_circle_length_is_analytic():
+    arc = GreatCircle([0, 0, 1], [0.6, 0, 0.8])
+    theta = np.arccos(0.8)
+    assert arc.length == pytest.approx(theta, rel=1e-15)
+    assert np.isclose(arc.u_at_length(theta / 4), 0.25) and np.isclose(arc.length_at(0.5), theta / 2)
+    assert np.allclose(np.linalg.norm(arc(np.linspace(0, 1, 5), 1), axis=-1), theta)  # |o'| ≡ θ
+
+
+def test_parameters_need_two_points():
+    from cnc5x import angle_parameters
+
+    with pytest.raises(ValueError):
+        chord_parameters([[1, 2]])
+    with pytest.raises(ValueError):
+        angle_parameters([[0, 0, 1]])

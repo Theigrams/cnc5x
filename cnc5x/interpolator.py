@@ -43,7 +43,7 @@ def interpolate(path, profile, Ts, machine=None, branch=1):
     aligned = align_period(profile, Ts)
     n = int(round(aligned.duration / Ts))
     t = np.arange(n + 1) * Ts
-    feed = aligned(t).T  # (4, N)
+    feed = aligned(t)  # (4, N)
     s = np.clip(feed[0], 0.0, path.length)
     d = compose(path.derivatives(s), feed[1], feed[2], feed[3])  # (4, N, dim)
     scale = aligned.duration / profile.duration
@@ -69,11 +69,25 @@ def taylor_interpolate(curve, profile, Ts, order=2):
     u = np.empty(n + 1)
     u[0] = lo
     for k in range(n):
-        v, a = feed[k, 1], feed[k, 2]
-        d1, d2 = curve(u[k], 1), curve(u[k], 2)
-        speed = np.linalg.norm(d1)
+        v, a = feed[1, k], feed[2, k]
+        d = curve.derivatives(u[k], order)  # 一阶展开只要 C'，不必求 C''
+        speed = np.linalg.norm(d[1])
         step = v * Ts / speed
         if order == 2:
-            step += Ts**2 / 2 * (a / speed - v**2 * np.dot(d1, d2) / speed**4)
+            step += Ts**2 / 2 * (a / speed - v**2 * np.dot(d[1], d[2]) / speed**4)
         u[k + 1] = min(u[k] + step, hi)
+    return u, curve(u)
+
+
+def correction_interpolate(curve, profile, Ts, mapping):
+    """进给修正多项式插补（Erkorkmaz & Altintas 2001；Yuen et al. 2013）：u_k = ũ(s_k)。
+
+    mapping 是 fitting.feed_correction 拟合出的 s → u 映射。每个周期直接代入多项式，
+    不查弧长表、也不递推，所以没有 Taylor 插补那样的累积误差；进给波动只来自拟合误差
+    |σ(ũ)·ũ_s − 1|（拟合时已控制在容差以内）。返回 (u, 位置)。
+    """
+    aligned = align_period(profile, Ts)
+    n = int(round(aligned.duration / Ts))
+    s = np.clip(aligned(np.arange(n + 1) * Ts)[0], 0.0, mapping.domain[1])
+    u = mapping(s)[:, 0]
     return u, curve(u)

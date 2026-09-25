@@ -18,14 +18,15 @@ from papers.Xu2018.algorithm import CcrPath
 
 points = cx.datasets.load_dataset("rhombic").points
 path = CcrPath(points, chord_error=0.2)
-profile, v = cx.schedule(path, v_max=100, a_max=3000, j_max=60000, Ts=0.0005)
+profile, s, v = cx.schedule(path, v_max=100, a_max=3000, j_max=60000, Ts=0.0005)
 commands = cx.interpolate(path, profile, Ts=0.0005)
 ```
 
 ## 说明
 
 - 由 `cnc_interpolation/papers/Xu2018/algorithm.py` 移植，公式不变；未使用的手工分割函数 `split_bspline` 没有迁移。
-- 补上了直行拐角（转角为 0）的处理：此时旋转角为 0，法向任取。
+- 补上了直行拐角（转角为 0）的处理：式 (7) 取极限 α = π，过渡是一段直线，逼近误差与曲率都取 0，法向任取；不依赖 cos(π/2) 在浮点下恰好不为零。
+- 与原实现对拍：block 长度吻合到 2e-11（rhombic、butterfly、griffen）。连接点限速有两处不同：弓高限速在急弯处饱和于 2ρ/Ts 而不是降到 0（butterfly 上原实现有 2 处停车）；原实现把曲率下限截为 1e-6，griffen 上 104 个近直行拐角（转角不到 2e-9 rad）的限速因此只有约 0.008 mm/s，本库没有这一截断。
 - 目前只复现了刀尖轨迹的圆角。论文中的刀轴光顺（对底部、顶部两条轨迹分别圆角）尚未实现。
 - 原目录中的 rhombic、Math_Validation notebook 尚未迁移到新接口。
 

@@ -20,13 +20,14 @@ from papers.Zhao2013.algorithm import SmoothedPath
 
 points = cx.datasets.load_dataset("butterfly").points
 path = SmoothedPath(points, chord_error=0.02, c1=0.5)
-profile, v = cx.schedule(path, v_max=100, a_max=3000, j_max=60000, Ts=0.0005, phases=5)
+profile, s, v = cx.schedule(path, v_max=100, a_max=3000, j_max=60000, Ts=0.0005, phases=5)
 commands = cx.interpolate(path, profile, Ts=0.0005)
 ```
 
 ## 说明
 
-- 由 `cnc_interpolation/papers/Zhao2013/algorithm.py` 移植，公式不变。原代码在分母上加的 `1e-6` 已去掉：转角为 0 的“拐角”改为显式处理，过渡长度取两侧较短的段长。
+- 由 `cnc_interpolation/papers/Zhao2013/algorithm.py` 移植，公式不变。原代码在式 (5) 分母上加的 `1e-6` 已去掉：转角为 0 的“拐角”改为显式处理，过渡长度取两侧较短的段长，曲率峰值与逼近误差都为 0，连接点不受弓高约束（`limits.chord_error_limit` 对 κ = 0 返回 ∞）。
+- 与原实现对拍：`1e-6` 影响所有拐角，rhombic 上 block 长度差 3e-7；griffen 上式 (13) 的逐次减半从略有不同的初值出发走了不同分支，276 个拐角的 d2 相差最多一倍，block 长度差到 6e-3 mm。两者都满足论文的约束。连接点限速的差异见仓库 README 的"论文复现"一节：弓高限速饱和于 2ρ/Ts 后，butterfly 上少停 6 处、griffen 上少停 15 处；原代码把直行拐角的限速截为 0（griffen 上 104 处），本库不再停车。
 - 连接点的弓高误差限速沿用原复现，容差取各拐角的实际逼近误差 `chord_errors`，而不是插补的弓高容差。两者是否应当分开，需要对照原文确认。
 - 原复现按 Lin 2007 表 3 的七种类型分别求解五段 S 曲线，并记录了一处勘误：Type (III) 应为
 

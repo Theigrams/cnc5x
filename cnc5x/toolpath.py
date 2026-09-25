@@ -10,9 +10,9 @@ self.blocks，并实现 get_v_limit。
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-from .calculus import compose, inverse_derivatives
-from .curves import Curve, Line, SubCurve
-from .fitting import chord_parameters, interpolate_bspline
+from . import tolerances
+from .curves import Curve, Line, Reparameterized, SubCurve
+from .fitting import chord_parameters, hermite, interpolate_bspline, monotone_interpolate
 from .geometry import polyline_tangents, turning_angles, unit
 from .limits import geometric_limit
 from .orientation import DualCurveDirection, GreatCircle, UnitDirection
@@ -32,23 +32,22 @@ class PoseCurve(Curve):
             raise ValueError('along 只能是 "tip" 或 "axis"')
         self.position, self.orientation = position, orientation
         self.domain = position.domain
-        self.measure = position if along == "tip" else orientation
+        self.measured = slice(0, 3) if along == "tip" else slice(3, 6)
+        self.measure = position if along == "tip" else orientation  # 计量弧长的那条曲线
 
     @property
     def breaks(self):
         return np.unique(np.concatenate([self.position.breaks, self.orientation.breaks]))
 
-    def _derivative(self, u, order):
-        return np.concatenate([self.position.derivative(u, order), self.orientation.derivative(u, order)], axis=-1)
+    def _derivatives(self, u, order):
+        return np.concatenate([self.position.derivatives(u, order), self.orientation.derivatives(u, order)], axis=-1)
 
     def curvature(self, u):
         return self.position.curvature(u)
 
+    # 弧长只取决于计量的那条曲线：直接用它自己的弧长表，另一条曲线不必跟着求值。
     def speed(self, u):
         return self.measure.speed(u)
-
-    def arc_derivatives(self, u):
-        return self.measure.arc_derivatives(u)
 
     @property
     def length(self):
@@ -61,15 +60,22 @@ class PoseCurve(Curve):
         return self.measure.u_at_length(s)
 
 
-def pose_spline(points, axes, parameters=None, degree=3):
-    """过全部刀位点的五轴样条：刀尖与刀轴各插值一条 B 样条（共用参数），刀轴再单位化。
+def pose_spline(points, axes, parameters=None, degree=3, orientation_parameters=None):
+    """过全部刀位点的五轴样条：刀尖插值一条 B 样条，刀轴插值一条 B 样条后单位化。
 
-    parameters 默认用刀尖的累积弦长。
+    parameters 是刀尖的参数，默认用累积弦长。orientation_parameters 缺省时刀轴与刀尖共用参数。
+    给出时（例如 fitting.angle_parameters：刀轴按自己转过的角度参数化，Yuen et al. 2013），
+    刀轴曲线 ô(w) 用自己的参数拟合，再同步到刀尖参数上：o(u) = ô(g(u))，映射 g 过节点 (uₖ, wₖ)，
+    C² 且严格递增（fitting.monotone_interpolate）。刀轴在刀位点处的取值不变，点与点之间转得
+    快慢则由刀轴自己的角度分布决定，不再被刀尖的弦长牵着走。
     """
-    u = chord_parameters(points) if parameters is None else parameters
+    u = chord_parameters(points) if parameters is None else np.asarray(parameters, dtype=float)
     position = interpolate_bspline(points, u, degree)
-    orientation = UnitDirection(interpolate_bspline(unit(axes), u, degree))
-    return PoseCurve(position, orientation)
+    if orientation_parameters is None:
+        return PoseCurve(position, UnitDirection(interpolate_bspline(unit(axes), u, degree)))
+    w = np.asarray(orientation_parameters, dtype=float)
+    orientation = UnitDirection(interpolate_bspline(unit(axes), w, degree))
+    return PoseCurve(position, Reparameterized(orientation, monotone_interpolate(u, w)))
 
 
 def dual_spline(points, axes, height, parameters=None, degree=3):
@@ -82,11 +88,42 @@ def dual_spline(points, axes, height, parameters=None, degree=3):
     return PoseCurve(tip, DualCurveDirection(tip, top))
 
 
+def hermite_transition(start, end, h, order=2):
+    """拐角过渡：两端直到 order 阶导数都与相邻段吻合的 Hermite 曲线（次数 2·order + 1）。
+
+    start、end 是两个接点处对刀尖弧长的导数栈 (4, dim)（见 PolylinePath.corner_ends）。过渡曲线的
+    参数 u ∈ [0, 1]，两端的参数速度都取 h（通常取两侧裁去的长度之和），端点条件为
+        dᵏC/duᵏ = hᵏ · dᵏC/dsᵏ，k = 0 … order，
+    相当于接点处 ds/du = h、更高阶导数为零，所以接点处对弧长 order 阶连续。
+    五轴时刀轴取单位化的 Hermite 曲线 o = r/|r|。端点处 r 与相邻段的单位刀轴曲线直到 order 阶
+    导数都相同，即 r = o_相邻 + O(u^{order+1})；单位化是光滑映射，又把单位向量映到自己，所以
+    r/|r| = o_相邻 + O(u^{order+1})：单位化后刀轴对刀尖弧长同样 order 阶连续（见 docs/数学约定.md）。
+    """
+    scale = (h ** np.arange(order + 1))[:, None]
+    start, end = start[: order + 1] * scale, end[: order + 1] * scale
+    if start.shape[-1] != 6:
+        return hermite(start, end)
+    return PoseCurve(hermite(start[:, :3], end[:, :3]), UnitDirection(hermite(start[:, 3:], end[:, 3:])))
+
+
 class Block:
-    """进给率规划单元：若干首尾相连的曲线段（零长度的段自动去掉）。"""
+    """进给率规划单元：若干首尾相连的曲线段。
+
+    零长度的段自动去掉（例如拐角过渡恰好占满整段直线，中间剩下的那一段）。但刀尖不动、
+    刀轴却在转的五轴段不能去掉：按刀尖弧长计量时它的进给没有定义，这里直接报错。
+    """
 
     def __init__(self, curves):
-        self.curves = [curve for curve in curves if curve.length > 0]
+        self.curves = []
+        for curve in curves:
+            if curve.length > 0:
+                self.curves.append(curve)
+            elif np.max(np.abs(curve.end_point - curve.start_point)) > tolerances.ROUNDING:
+                raise ValueError(
+                    "曲线段的弧长为零但端点不同（刀尖不动、只转刀轴？），按刀尖弧长计量时进给没有定义。"
+                    '单独的纯转刀轴运动可以用 PoseCurve(..., along="axis") 自成一条刀路；'
+                    "混在 G01 刀路里的纯转刀轴段尚未支持，方案见 docs/路线图.md"
+                )
         self.length = float(sum(curve.length for curve in self.curves))
 
     def __repr__(self):
@@ -118,8 +155,8 @@ class ToolPath:
     def derivatives(self, s):
         """全局弧长 s 处的导数栈 [C, C_s, C_ss, C_sss]，形状 (4, ..., dim)。
 
-        先找出 s 落在哪一段、段内参数 u 是多少，再用反函数求导（u 对 s）和链式法则，
-        把对 u 的导数换成对 s 的导数。
+        先找出 s 落在哪一段、段内参数 u 是多少，再由 Curve.derivatives_by_length
+        把对 u 的导数换成对 s 的导数（反函数求导加链式法则）。
         """
         s = np.asarray(s, dtype=float)
         flat = s.ravel()
@@ -131,10 +168,7 @@ class ToolPath:
         for i in np.unique(index):
             mask = index == i
             curve = curves[i]
-            u = curve.u_at_length(flat[mask] - starts[i])
-            s1, s2, s3 = curve.arc_derivatives(u)
-            u1, u2, u3 = inverse_derivatives(s1, s2, s3)
-            d = compose(curve.derivatives(u), u1, u2, u3)
+            d = curve.derivatives_by_length(curve.u_at_length(flat[mask] - starts[i]))
             if result is None:
                 result = np.empty((4, len(flat), d.shape[-1]))
             result[:, mask] = d
@@ -155,34 +189,61 @@ class PolylinePath(ToolPath):
     def __init__(self, points, axes=None):
         self.points = np.asarray(points, dtype=float)
         self.axes = None if axes is None else unit(axes)
+        repeated = np.all(self.points[1:] == self.points[:-1], axis=-1)
+        if np.any(repeated) and self.axes is not None:
+            changed = np.any(self.axes[1:] != self.axes[:-1], axis=-1)
+            if np.any(repeated & changed):
+                raise ValueError(
+                    f"第 {np.flatnonzero(repeated & changed)[0]} 段刀尖不动、只转刀轴：G01 刀路按刀尖弧长计量进给，"
+                    "这种段尚未支持，方案见 docs/路线图.md；刀尖与刀轴都重复的点请先去掉"
+                )
+        self.poses = self.points if axes is None else np.hstack([self.points, self.axes])
         self.N = len(self.points) - 1
         self.tangents, self.L = polyline_tangents(self.points)
         self.turning_angles = turning_angles(self.tangents)
 
-    def segment(self, i):
-        """第 i 段 G01：三轴是直线；五轴是直线 + 刀轴大圆插值。"""
-        line = Line(self.points[i], self.points[i + 1])
+    def g01(self, start, end):
+        """从位姿 start 到 end 的一段 G01。
+
+        三轴：直线。五轴（start、end 为 6 维 [p, o]）：刀尖走直线，刀轴沿大圆匀速转动，
+        两者共用参数 u ∈ [0, 1]。
+        """
         if self.axes is None:
-            return line
-        return PoseCurve(line, GreatCircle(self.axes[i], self.axes[i + 1]))
+            return Line(start, end)
+        return PoseCurve(Line(start[:3], end[:3]), GreatCircle(start[3:], end[3:]))
+
+    def segment(self, i):
+        """第 i 段 G01（从 poses[i] 到 poses[i+1]）。"""
+        return self.g01(self.poses[i], self.poses[i + 1])
+
+    def corner_ends(self, i, before, after):
+        """第 i 个拐角（顶点 points[i+1]）处过渡曲线的两个接点：进入段上距顶点 before，离开段上距顶点 after。
+
+        返回两个对刀尖弧长的导数栈 (4, dim)；五轴时含刀轴，刀轴按 G01 的大圆插值取值。
+        过渡曲线在接点处要与这两个导数栈吻合（例如 hermite_transition）。
+        """
+        start = self.segment(i).derivatives_by_length(1 - before / self.L[i])
+        end = self.segment(i + 1).derivatives_by_length(after / self.L[i + 1])
+        return start, end
 
     def corner_blocks(self, transitions):
         """由各拐角的过渡曲线拼出 block（拐角光顺类论文的公共部分）。
 
-        transitions[i] = (前半段, 后半段) 是第 i 个拐角（顶点 points[i+1]）的过渡。
-        第 i 个 block = 上一拐角的后半段 + 直线 + 下一拐角的前半段，
-        所以 block 的连接点正好落在各拐角过渡的中点（通常是曲率峰值处）。
+        transitions[i] = (前半段, 后半段) 是第 i 个拐角（顶点 points[i+1]）的过渡，
+        五轴时它们是 6 维的刀位曲线。第 i 个 block = 上一拐角的后半段 + G01 + 下一拐角的前半段，
+        中间的 G01 用 g01 补上（五轴时刀轴也一起沿大圆过渡），所以 block 的连接点正好落在
+        各拐角过渡的中点（通常是曲率峰值处）。
         """
         blocks = []
         for i in range(self.N):
             curves = []
-            start, end = self.points[i], self.points[i + 1]
+            start, end = self.poses[i], self.poses[i + 1]
             if i > 0:
                 curves.append(transitions[i - 1][1])
                 start = transitions[i - 1][1].end_point
             if i < self.N - 1:
                 end = transitions[i][0].start_point
-            curves.append(Line(start, end))
+            curves.append(self.g01(start, end))
             if i < self.N - 1:
                 curves.append(transitions[i][0])
             blocks.append(Block(curves))
@@ -207,6 +268,41 @@ class LinearPath(PolylinePath):
         return np.minimum(np.concatenate([[0.0], corner, [0.0]]), v_max)
 
 
+class HermiteCornerPath(PolylinePath):
+    """拐角用五次 Hermite 曲线过渡的 G01 刀路（三轴或五轴）。这是拐角光顺的教学基线，不是某篇论文的方法。
+
+    第 i 个拐角两侧各裁去 ℓᵢ，用 hermite_transition（h = 2ℓᵢ）连接：刀尖在接点处 G² 连续，
+    五轴时刀轴对刀尖弧长 C² 连续。对称的五次过渡离顶点最近的是它的中点，距离为
+        ε = (3/8)·ℓ·sin(φ/2)（φ 为转角），
+    所以由拐角逼近误差上限 tolerance 取 ℓ = 8ε / (3 sin(φ/2))，再限制 ℓ 不超过相邻段长的一半
+    （首末两段只有一端过渡，可用整段）。只限制了刀尖的逼近误差，刀轴的偏差没有限制。
+    过渡在中点一分为二，block 的连接点就在中点；限速取中点曲率（对称过渡的曲率峰值）。
+    """
+
+    def __init__(self, points, tolerance, chord_error, axes=None):
+        super().__init__(points, axes)
+        if np.any(np.pi - self.turning_angles < tolerances.ANTIPODAL):
+            raise ValueError("有掉头（转角为 π）的拐角：Hermite 过渡在中点速度为零")
+        self.tolerance, self.chord_error = tolerance, chord_error
+        room = self.L / 2
+        room[[0, -1]] = self.L[[0, -1]]
+        with np.errstate(divide="ignore"):
+            trim = 8 * tolerance / (3 * np.sin(self.turning_angles / 2))  # 直行时为 ∞，由段长决定
+        self.trim = np.minimum(trim, np.minimum(room[:-1], room[1:]))
+        self.transitions = []
+        for i in range(self.N - 1):
+            start, end = self.corner_ends(i, self.trim[i], self.trim[i])
+            self.transitions.append(hermite_transition(start, end, 2 * self.trim[i]))
+        self.curvature_peaks = np.array([curve.curvature(0.5) for curve in self.transitions])
+        halves = [(SubCurve(curve, 0.0, 0.5), SubCurve(curve, 0.5, 1.0)) for curve in self.transitions]
+        self.blocks = self.corner_blocks(halves)
+
+    def get_v_limit(self, Ts, v_max, a_max, j_max):
+        """连接点（过渡中点）的速度上限：弓高误差、法向加速度、法向 jerk 三者取小。"""
+        v = geometric_limit(self.curvature_peaks, self.chord_error, Ts, a_max, j_max)
+        return np.minimum(np.concatenate([[0.0], v, [0.0]]), v_max)
+
+
 class CurvePath(ToolPath):
     """一条光滑曲线（B 样条、NURBS 或五轴 PoseCurve）作为刀路。
 
@@ -221,8 +317,9 @@ class CurvePath(ToolPath):
         u = np.linspace(lo, hi, samples)
         kappa = curve.curvature(u)
         inner = kappa[1:-1]
-        # 严格高于左邻（留 1e-9 相对余量，滤掉恒曲率上的舍入噪声），不低于右邻，且不是近乎直线处
-        is_peak = (inner > kappa[:-2] * (1 + 1e-9)) & (inner >= kappa[2:]) & (inner > 1e-6 * kappa.max())
+        # 严格高于左邻（留舍入余量，滤掉恒曲率上的噪声），不低于右邻，且不是近乎直线处
+        higher = inner > kappa[:-2] * (1 + tolerances.ROUNDING)
+        is_peak = higher & (inner >= kappa[2:]) & (inner > tolerances.FLAT_CURVATURE * kappa.max())
         peaks = []
         for i in np.flatnonzero(is_peak) + 1:
             result = minimize_scalar(lambda x: -curve.curvature(x), bounds=(u[i - 1], u[i + 1]), method="bounded")

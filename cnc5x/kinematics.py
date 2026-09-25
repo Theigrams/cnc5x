@@ -13,6 +13,7 @@ w = 0（刀轴平行于 C 轴）时 C 不定，这是运动学奇异点（极点
 
 import numpy as np
 
+from . import tolerances
 from .calculus import acos_derivatives, arg_derivatives, compose, product
 from .geometry import rotation, unit
 
@@ -75,12 +76,17 @@ class TableTilting:
         """
         tip, axis = np.asarray(tip, dtype=float), np.asarray(axis, dtype=float)
         w = self._c_complex(axis)  # (4, N)，w 对刀轴分量是线性的，所以可以直接作用在导数栈上
-        pole = np.abs(w[0]) < 1e-9
+        pole = np.abs(w[0]) < tolerances.POLE
         with np.errstate(divide="ignore", invalid="ignore"):
-            tilt = branch * acos_derivatives(axis[..., 2])
+            tilt = branch * acos_derivatives(axis[..., 2], rho=np.abs(w[0]))  # |w| = √(o_x² + o_y²)，无相消
             c = arg_derivatives(w)
-        c[0] = self._continuous_c(w[0], branch, c_start)
-        if np.any(pole):
+        c[0] = self._continuous_c(w[0], branch, c_start)  # 只有 C 本身要展开：导数对 C + 2kπ 的平移不变
+        if np.all(pole):
+            # 刀轴在全部样本上都平行于 C 轴：倾角恒为 0（或 π），C 保持初值，各阶导数都为零。
+            # 公式里的 1/|w| 在这里是 0·∞，只能按定义给出（结论只对这些样本成立）。
+            tilt[1:] = 0.0
+            c[1:] = 0.0
+        elif np.any(pole):
             nearest = _nearest_regular(pole)
             tilt[1:, pole] = tilt[1:, nearest[pole]]
             c[1:, pole] = c[1:, nearest[pole]]
@@ -98,7 +104,7 @@ class TableTilting:
     def _continuous_c(self, w, branch, c_start):
         """C 角序列：取主值 → 极点处用最近的非极点值 → 展开成连续 → 靠近 c_start。"""
         c = np.angle(w) + (np.pi if branch < 0 else 0.0)
-        pole = np.abs(w) < 1e-9
+        pole = np.abs(w) < tolerances.POLE
         if np.all(pole):
             return np.full(c.shape, 0.0 if c_start is None else float(c_start))
         c = np.unwrap(c[_nearest_regular(pole)])

@@ -97,3 +97,19 @@ def test_pole_takes_neighbouring_values():
     assert np.allclose(q[0, :, 4], np.pi / 2)
     assert np.allclose(q[1, :, 3], theta)
     assert np.all(np.isfinite(q))
+
+
+@pytest.mark.filterwarnings("error")
+@pytest.mark.parametrize("kind", ["AC", "BC"])
+def test_vertical_tool_axis_everywhere(kind):
+    # 平面轮廓配竖直刀轴：每个样本都在极点上。以前 axis_motion 在这里抛 IndexError
+    import cnc5x as cx
+
+    points = cx.datasets.load_dataset("rhombic").points
+    points = np.column_stack([points, np.zeros(len(points))])
+    path = cx.LinearPath(points, np.tile([0.0, 0.0, 1.0], (len(points), 1)))
+    profile, _, _ = cx.schedule(path, 50, 500, 5000, 0.001)
+    commands = cx.interpolate(path, profile, 0.001, machine=TableTilting(kind))
+    assert np.all(np.isfinite(commands.q))
+    assert np.allclose(commands.q[:, :, :3], commands.tip)  # 转台不动：机床坐标就是刀尖坐标
+    assert np.all(commands.q[:, :, 3:] == 0)

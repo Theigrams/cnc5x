@@ -22,12 +22,16 @@ class CcrPath(PolylinePath):
         super().__init__(points)
         self.chord_error = chord_error
         self.theta = np.pi - self.turning_angles  # 拐角处两段之间的夹角
-        self.alpha = 2 * np.arctan((1 / 3 + np.sin(self.theta / 2)) / np.cos(self.theta / 2))  # Eq. (7)
+        # 直行（θ = π）时 Eq. (7) 的分母 cos(θ/2) 为零，取极限 α → π：过渡曲线是一段直线，
+        # 没有逼近误差，Eq. (4) 不起约束。显式处理，不依赖 cos(π/2) 在浮点下恰好不为零。
+        straight = self.turning_angles == 0
+        alpha = 2 * np.arctan((1 / 3 + np.sin(self.theta / 2)) / np.cos(self.theta / 2))  # Eq. (7)
+        self.alpha = np.where(straight, np.pi, alpha)
         self.N0N4_list = self.adjustment_length()
-        N3N4_limit1 = 3 * chord_error / np.cos(self.alpha / 2)  # Eq. (4)
+        N3N4_limit1 = np.where(straight, np.inf, 3 * chord_error / np.cos(self.alpha / 2))  # Eq. (4)
         N3N4_limit2 = self.N0N4_list / (4 * np.cos((self.alpha - self.theta) / 2) + 1)  # Eq. (11)
         self.N3N4_list = np.minimum(N3N4_limit1, N3N4_limit2)
-        self.chord_errors = self.N3N4_list * np.cos(self.alpha / 2) / 3
+        self.chord_errors = np.where(straight, 0.0, self.N3N4_list * np.cos(self.alpha / 2) / 3)
         self.blocks = self.generate_blocks()
 
     def adjustment_length(self):
@@ -72,7 +76,9 @@ class CcrPath(PolylinePath):
             ctrlpts = self.generate_ctrlpts(self.points[i : i + 3], self.N3N4_list[i], i)
             splines.append(BSpline(ctrlpts, 3, KNOTS))
         self.bsplines = splines
-        self.curvature_peaks = np.array([spline.curvature(0.5) for spline in splines])
+        # 直行拐角的过渡是直线，曲率为零；数值求出的是 1e-13 量级的舍入噪声，配上为零的逼近误差会给出 v = 0
+        peaks = np.array([spline.curvature(0.5) for spline in splines])
+        self.curvature_peaks = np.where(self.turning_angles == 0, 0.0, peaks)
         return self.corner_blocks([spline.split(0.5) for spline in splines])
 
     def get_v_limit(self, Ts, v_max, a_max, j_max):

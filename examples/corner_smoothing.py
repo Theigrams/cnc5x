@@ -30,7 +30,7 @@ methods = {  # 名字: (刀路, S 曲线段数)
 print(f"数据 {name}：{len(points)} 个点；V = {V_MAX} mm/s，A = {A_MAX} mm/s²，J = {J_MAX} mm/s³，Ts = {TS} s")
 results = {}
 for label, (path, phases) in methods.items():
-    profile, _ = cx.schedule(path, V_MAX, A_MAX, J_MAX, TS, phases=phases)
+    profile, _, _ = cx.schedule(path, V_MAX, A_MAX, J_MAX, TS, phases=phases)
     commands = cx.interpolate(path, profile, TS)
     _, acceleration, jerk = metrics.tangential(commands.tip)
     deviation = metrics.path_deviation(commands.position, points).max()

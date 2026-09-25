@@ -14,13 +14,23 @@ import numpy as np
 
 
 def chord_error_limit(curvature, chord_error, Ts):
-    """弓高误差限速：一个插补周期走过的弦长 vTs 所对应的弓高不超过 δ。
+    """弓高误差限速：一个插补周期走过的弦长 c = vTs 所对应的弓高不超过 δ。
 
-    弦长 c 与弓高 δ 的关系 (c/2)² = 2ρδ − δ²，所以 v = c/Ts = (2/Ts)·√(2ρδ − δ²)。
+    半径 ρ = 1/κ 的圆上，弦长 c 与弓高 δ 的关系为 (c/2)² = 2ρδ − δ²，所以
+        v = c/Ts = (2/Ts)·√(2ρδ − δ²)，  κδ ≤ 1；
+        v = 2ρ/Ts，                     κδ > 1（饱和）；
+        v = ∞，                         κ = 0（直线上没有弓高误差）。
+    第一式只在 δ ≤ ρ 时成立：弦长随 δ 增大而增大，δ = ρ 时弦长达到直径 2ρ。δ > ρ 时公式里的
+    δ 已经是优弧一侧的"弓高"，弦长反而随 δ 变小，δ ≥ 2ρ 时甚至给出 v = 0，让刀具在急弯处停下。
+    弦长不可能超过直径，容差再放宽也只能达到 c = 2ρ，所以饱和在 2ρ/Ts。这种急弯处法向加速度的
+    限速通常小得多（见 curvature_limit），饱和值一般不起作用，它只是不再让速度无谓地降到零。
+    curvature (...)、单位 1/mm；chord_error 单位 mm（可与 curvature 广播）；返回 mm/s。
     """
-    with np.errstate(divide="ignore"):
-        rho = 1.0 / np.asarray(curvature, dtype=float)
-    return 2.0 / Ts * np.sqrt(np.maximum(2 * rho * chord_error - chord_error**2, 0.0))
+    kappa = np.asarray(curvature, dtype=float)
+    x = np.minimum(kappa * chord_error, 1.0)  # κδ，饱和于 1
+    with np.errstate(divide="ignore", invalid="ignore"):
+        half_chord = np.sqrt(2 * x - x**2) / kappa  # (c/2)² = (2κδ − κ²δ²)/κ² = 2ρδ − δ²；x = 1 时即 ρ
+    return np.where(kappa > 0, 2.0 * half_chord / Ts, np.inf)
 
 
 def curvature_limit(curvature, a_max, j_max):
@@ -55,12 +65,12 @@ class DriveLimits:
                 raise ValueError("三组上限必须是形状相同的正数数组")
 
 
-def drive_limit(dq, limits):
+def drive_limit(dq_ds, limits):
     """匀速通过时各轴约束给出的进给上限：|q_s|v ≤ V，|q_ss|v² ≤ A，|q_sss|v³ ≤ J。
 
-    dq: (4, ..., n_axes)，q 对弧长 s 的导数栈；返回 (...)。
+    dq_ds: (4, ..., n_axes)，q 对弧长 s 的导数栈（不是对时间）；返回 (...)。
     """
-    q1, q2, q3 = np.abs(dq[1]), np.abs(dq[2]), np.abs(dq[3])
+    q1, q2, q3 = np.abs(dq_ds[1]), np.abs(dq_ds[2]), np.abs(dq_ds[3])
     with np.errstate(divide="ignore"):
         v1 = np.min(limits.velocity / q1, axis=-1)
         v2 = np.min(np.sqrt(limits.acceleration / q2), axis=-1)
@@ -68,28 +78,32 @@ def drive_limit(dq, limits):
     return np.minimum(np.minimum(v1, v2), v3)
 
 
-def acceleration_interval(dq, v, limits):
-    """给定进给速度 v，切向加速度 a 的可行区间 [lo, hi]：各轴 |q_ss v² + q_s a| ≤ A。无解处为 nan。"""
+def acceleration_interval(dq_ds, v, limits):
+    """给定进给速度 v，切向加速度 a 的可行区间 [lo, hi]：各轴 |q_ss v² + q_s a| ≤ A。无解处为 nan。
+
+    逐周期调度（例如 Beudaert et al. 2012）每一步要知道 a 能取多大，就用它；库内的 schedule 不用。
+    """
     v = np.asarray(v, dtype=float)[..., None]
-    return _affine_interval(dq[1], dq[2] * v**2, limits.acceleration)
+    return _affine_interval(dq_ds[1], dq_ds[2] * v**2, limits.acceleration)
 
 
-def jerk_interval(dq, v, a, limits):
-    """给定 v、a，切向 jerk j 的可行区间 [lo, hi]：各轴 |q_sss v³ + 3 q_ss v a + q_s j| ≤ J。"""
+def jerk_interval(dq_ds, v, a, limits):
+    """给定 v、a，切向 jerk j 的可行区间 [lo, hi]：各轴 |q_sss v³ + 3 q_ss v a + q_s j| ≤ J。无解处为 nan。"""
     v = np.asarray(v, dtype=float)[..., None]
     a = np.asarray(a, dtype=float)[..., None]
-    return _affine_interval(dq[1], dq[3] * v**3 + 3 * dq[2] * v * a, limits.jerk)
+    return _affine_interval(dq_ds[1], dq_ds[3] * v**3 + 3 * dq_ds[2] * v * a, limits.jerk)
 
 
-def time_scale_factor(dq, limits):
+def time_scale_factor(dq_dt, limits):
     """整体放慢 λ 倍（t → λt）使各轴都不超限所需的最小 λ ≥ 1。
 
     放慢后 q̇、q̈、q⃛ 分别变为 1/λ、1/λ²、1/λ³ 倍，所以 λ = max(1, r_v, √r_a, ∛r_j)，
-    r 是最大超限比。dq: (4, N, n_axes) 为时间导数栈；结论只对这些样本成立。
+    r 是最大超限比。dq_dt: (4, N, n_axes) 为 q 对时间的导数栈（插补结果 Commands.q）；
+    结论只对这些样本成立。
     """
-    r_v = np.max(np.abs(dq[1]) / limits.velocity)
-    r_a = np.max(np.abs(dq[2]) / limits.acceleration)
-    r_j = np.max(np.abs(dq[3]) / limits.jerk)
+    r_v = np.max(np.abs(dq_dt[1]) / limits.velocity)
+    r_a = np.max(np.abs(dq_dt[2]) / limits.acceleration)
+    r_j = np.max(np.abs(dq_dt[3]) / limits.jerk)
     return float(max(1.0, r_v, np.sqrt(r_a), np.cbrt(r_j)))
 
 
