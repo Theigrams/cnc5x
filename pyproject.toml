@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cnc5x"
+version = "0.3.0"
+description = "五轴数控插补教学库：曲线、刀路、前瞻、速度规划与插补"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "numpy>=1.22",
+    "scipy>=1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "sympy>=1.10",
+    "matplotlib>=3.5",
+    "ruff>=0.9",
+]
+
+[tool.setuptools.packages.find]
+include = ["cnc5x*"]
+
+[tool.setuptools.package-data]
+"cnc5x.datasets" = ["data/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "NPY"]
+ignore = [
+    "E741",  # 允许 l、I 等与论文一致的单字母变量
+    "B023",  # 循环内定义的小函数只在当次循环使用
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["cnc5x", "papers"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
