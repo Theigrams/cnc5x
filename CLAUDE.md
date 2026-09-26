@@ -158,6 +158,7 @@ ruff format . && ruff check .
 ## 11. Notebook
 
 - 库里每一块设计（新模块、新算法、新刀路类）都要配一本教学 notebook，放在 `notebooks/<编号>_<主题>.ipynb`，提交时带着执行后的输出。pytest 负责守住正确性；notebook 负责讲清原理，也方便人类调试时直接看图、看数字。
+- notebook 由 `notebooks/_build/build_<编号>.py` 生成并执行，写作规范见 `notebooks/_build/README.md`。改 notebook 内容时改对应的 build 脚本再重建，不要直接编辑 `.ipynb`。
 - 开头第一个代码单元格固定为：
 
 ```python
