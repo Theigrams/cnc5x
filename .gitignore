@@ -27,3 +27,6 @@ coverage.xml
 
 # 运行输出
 output/
+
+# notebook 本地构建工具
+notebooks/_build/

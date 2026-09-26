@@ -41,10 +41,6 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["cnc5x", "papers"]
 
-[tool.ruff.lint.per-file-ignores]
-# build 脚本的主体是 notebook 的 Markdown 字符串，单元格的长行由 build() 里对 .ipynb 的 ruff 检查把关
-"notebooks/_build/build_*.py" = ["E501"]
-
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
