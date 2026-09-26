@@ -34,7 +34,7 @@ Curve ─▶ ToolPath ─▶ bidirectional_scan ─▶ schedule ─▶ interpola
 | `profiles.py` | 分段恒 jerk 进给轮廓，七段、五段 S 曲线 | scipy |
 | `look_ahead.py`、`scheduler.py` | 双向扫描、进给包络、整条刀路的速度规划 | profiles、limits |
 | `interpolator.py` | 周期插补 `interpolate`、Taylor 参数插补、进给修正插补 | calculus、profiles |
-| `metrics.py` | 评价指标 | calculus、scipy |
+| `metrics.py` | 评价指标 | calculus、geometry、scipy |
 | `io.py`、`datasets/` | 刀位文件读取、内置数据 | geometry |
 | `plotting.py` | notebook 里反复出现的图（进给四联图、机床轴图、刀轴箭头）和统一配色；matplotlib 是可选依赖，不在 `__init__` 中导入 | matplotlib |
 
@@ -126,6 +126,7 @@ ruff format . && ruff check .
 | dual-spline tool path | `dual_spline`、`DualCurveDirection` | 双样条刀路 |
 | kinematic singularity (pole) | `pole` | 奇异点（极点） |
 | time scaling | `Profile.scaled`、`time_scale_factor` | 时间缩放 |
+| nonlinear error | `nonlinear_error` | 非线性误差（周期内各轴线性插值引起的刀位偏差） |
 | approximation error / contour error | `corner_error` / — | 逼近误差（光顺偏差）/ 轮廓误差（伺服跟随） |
 
 引入新概念前，先查它在 CIRP Annals、IJMTM 等期刊中的通行叫法，再给代码命名。

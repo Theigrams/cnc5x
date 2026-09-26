@@ -98,6 +98,33 @@ def test_junction_jumps_see_the_tool_axis():
     assert np.isclose(jumps[0, 4], np.linalg.norm(b[1, 3:] - a[1, 3:])) and jumps[0, 4] > 0.5
 
 
+def test_nonlinear_error_matches_closed_form():
+    import cnc5x as cx
+
+    # 刀尖匀速走直线，刀轴倾角 θ 不变、方位角 φ 线性变化：AC 机床上 A = θ，C = π/2 − φ 也是线性的。
+    # 第 k 个周期中点处，XYZ 线性插值再正解（R_mid 与 R_k 只差 R_z(−δ/2)）给出闭式
+    #   e = p_lin − p_mid = (cos(δ/2) − 1)·(p_x, p_y, 0) + ½ sin(δ/2)·(−Δp_y, Δp_x, 0)，δ = C_{k+1} − C_k。
+    # 刀尖误差是 e 垂直于直线的分量；刀轴误差是 φ 差 φ_s·(e·T) 时小圆上两点的夹角。
+    theta, phi0, phi1, L = np.deg2rad(30), 0.0, 1.5, 30.0
+    p0, T = np.array([80.0, 30.0, -10.0]), cx.unit([1.0, 0.5, 0.2])
+    pose = cx.PoseCurve(cx.Line(p0, p0 + L * T), cx.SphericalCurve(Line([theta, phi0], [theta, phi1])))
+    path = CurvePath(pose, chord_error=1e-3)
+    commands = interpolate(path, cx.Profile([L / 50.0], [0.0], v0=50.0), 0.001, machine=cx.TableTilting("AC"))
+    s, q = commands.feed[0], commands.q[0]
+    tip, axis = metrics.nonlinear_error(cx.TableTilting("AC"), path, s, q, fractions=[0.5])
+
+    delta, dp = np.diff(q[:, 4]), np.diff(s)[:, None] * T
+    p_mid = p0 + (s[:-1] + s[1:])[:, None] / 2 * T
+    e = (np.cos(delta / 2) - 1)[:, None] * p_mid * [1, 1, 0]
+    e += (np.sin(delta / 2) / 2)[:, None] * np.column_stack([-dp[:, 1], dp[:, 0], np.zeros(len(dp))])
+    along = e @ T
+    expected_tip = np.linalg.norm(e - along[:, None] * T, axis=1)
+    expected_axis = 2 * np.arcsin(np.sin(theta) * np.abs(np.sin((phi1 - phi0) / L * along / 2)))
+    assert expected_tip.min() > 1e-5  # 误差确实不为零，比较有区分度
+    assert np.abs(tip - expected_tip).max() < 1e-12  # 坐标约 100 mm，舍入约 100·2e-16；误差本身约 3e-5 mm
+    assert np.abs(axis - expected_axis).max() < 1e-6 * expected_axis.max()
+
+
 def test_read_cl_goto_with_spaces(tmp_path):
     path = tmp_path / "path.cls"
     path.write_text("GOTO/1,2,3\nGOTO / 4,5,6\ngoto/7,8,9\n")

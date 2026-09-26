@@ -34,11 +34,12 @@ class Commands:
         return None if self.axis is None else self.axis[0]
 
 
-def interpolate(path, profile, Ts, machine=None, branch=1):
+def interpolate(path, profile, Ts, machine=None, branch=None):
     """按周期 Ts 插补整条刀路。
 
     进给轮廓先整体放慢到总时长是 Ts 的整数倍（λ 略大于 1，记在 Commands.scale）。
     路径求值为 6 维时按五轴 [刀尖, 刀轴] 处理；再给出 machine 时同时算机床轴。
+    branch 缺省时由机床按倾转轴行程选择（没有行程时取正分支），见 TableTilting.choose_branch。
     """
     aligned = align_period(profile, Ts)
     n = int(round(aligned.duration / Ts))

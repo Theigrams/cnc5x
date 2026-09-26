@@ -86,6 +86,41 @@ def test_c_is_unwrapped_across_pi():
     assert np.allclose(q[:, 4], C + 2 * np.pi)
 
 
+def ac_axes(a, c):
+    """AC 机床倾角 a、C 角 c 对应的刀轴 o = (sin a sin c, sin a cos c, cos a)。"""
+    return np.column_stack([np.sin(a) * np.sin(c), np.sin(a) * np.cos(c), np.cos(a) * np.ones_like(c)])
+
+
+def test_tilt_travel_selects_the_feasible_branch():
+    rng = np.random.default_rng(3)
+    a, c = np.deg2rad(np.linspace(10, 60, 40)), np.linspace(0.2, 1.4, 40)
+    p, o = rng.normal(size=(40, 3)) * 20, ac_axes(a, c)
+    machine = TableTilting("AC", tilt_range=np.deg2rad([-90, 20]))  # 正倾角最多 20°，只能走负分支
+    q = machine.inverse_path(p, o)
+    assert np.allclose(q[:, 3], -a) and np.allclose(q[:, 4], c + np.pi)  # 负分支：倾角取负，C 加 π
+    p_back, o_back = machine.forward(q)
+    assert np.allclose(p_back, p) and np.allclose(o_back, o)
+    stack = np.zeros((4, 40, 3))
+    stack[0] = o
+    assert np.allclose(machine.axis_motion(np.zeros((4, 40, 3)), stack)[0, :, 3], -a)
+    with pytest.raises(ValueError, match="行程"):
+        machine.inverse_path(p, o, branch=1)  # 指定的分支超程
+    with pytest.raises(ValueError, match="行程"):
+        TableTilting("AC", tilt_range=np.deg2rad([-20, 20])).inverse_path(p, o)  # 两个分支都超程
+
+
+def test_c_travel_shifts_whole_turns():
+    c = np.linspace(2.9, 3.6, 30)  # 展开后连续，跨过 π
+    o = ac_axes(np.full(30, 0.4), c)
+    zeros = np.zeros((30, 3))
+    q = TableTilting("AC", c_range=(-2 * np.pi, 0.0)).inverse_path(zeros, o, c_start=c[0])
+    assert np.allclose(q[:, 4], c - 2 * np.pi)  # 只有 k = −1 能整段放进行程，c_start 让位于行程
+    q = TableTilting("AC", c_range=(-4 * np.pi, 4 * np.pi)).inverse_path(zeros, o, c_start=c[0] + 2 * np.pi)
+    assert np.allclose(q[:, 4], c + 2 * np.pi)  # 行程内有多个 k 时取最接近 c_start 的
+    with pytest.raises(ValueError, match="行程"):
+        TableTilting("AC", c_range=(-0.5, 0.5)).inverse_path(zeros, o)
+
+
 def test_pole_takes_neighbouring_values():
     # 刀轴从竖直（极点）出发沿大圆倾斜：C 恒为 π/2，倾角 θu 的导数恒为 θ
     arc = GreatCircle([0, 0, 1], [0.6, 0, 0.8])

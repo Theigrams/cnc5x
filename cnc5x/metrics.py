@@ -1,9 +1,11 @@
-"""评价指标：路径偏差、拐角误差、弓高误差、进给波动、切向速度（及加速度、jerk）、轴峰值、连接处的连续性。"""
+"""评价指标：路径偏差、拐角误差、弓高误差、进给波动、切向速度（及加速度、jerk）、轴峰值、连接处的连续性、
+五轴非线性误差。"""
 
 import numpy as np
 from scipy.spatial import cKDTree
 
 from .calculus import speed_derivatives
+from .geometry import angle_between
 
 
 def path_deviation(points, vertices):
@@ -78,6 +80,29 @@ def axis_report(q, limits):
         peak = np.max(np.abs(q[k]), axis=0)
         report[name] = {"peak": peak, "ratio": peak / bound}
     return report
+
+
+def nonlinear_error(machine, path, s, q, fractions=(0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875)):
+    """五轴非线性误差（nonlinear error）：相邻插补点之间机床轴按直线插值时，刀位偏离目标刀路多少。
+
+    伺服层在两个插补点之间对各轴线性插值：q(f) = q_k + f·(q_{k+1} − q_k)，f ∈ [0, 1]。
+    正解 p(f)、o(f) 后，转动轴让刀尖沿弧线而不是直线走，这就是非线性误差，量级约 R·Δθ²/8
+    （R 为刀尖到转轴的距离，Δθ 为一个周期的转角）。
+    目标点取刀路上离 p(f) 最近的点：从同进度 s = s_k + f·Δs_k 出发沿单位切向 T 投影一步，
+    s* = s + (p − C(s))·T。同进度配对里有进给不匀带来的切向偏差（量级 a·Ts²，与非线性误差相当），
+    投影把它去掉，剩下的误差是 O(κe²)。
+    s：各插补点的刀尖弧长 (N,)（Commands.feed[0]），刀路须按刀尖计量；q：机床轴 (N, 5)（Commands.q[0]）。
+    返回 (刀尖距离 (N−1,) mm, 刀轴夹角 (N−1,) rad)，是每个周期在 fractions 上的最大值，只在这些样本上检查。
+    """
+    f = np.asarray(fractions, dtype=float)
+    q_lin = q[:-1, None] + f[:, None] * np.diff(q, axis=0)[:, None]  # (N−1, F, 5)
+    p, o = machine.forward(q_lin)
+    s_same = np.clip(s[:-1, None] + f * np.diff(s)[:, None], 0.0, path.length)  # 同进度的弧长 (N−1, F)
+    d = path.derivatives(s_same)
+    step = np.sum((p - d[0, ..., :3]) * d[1, ..., :3], axis=-1)
+    target = path.derivatives(np.clip(s_same + step, 0.0, path.length))[0]
+    tip = np.linalg.norm(p - target[..., :3], axis=-1).max(axis=1)
+    return tip, angle_between(o, target[..., 3:]).max(axis=1)
 
 
 def junction_jumps(curves):
