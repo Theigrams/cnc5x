@@ -1,6 +1,6 @@
 # CLAUDE.md — cnc5x 协作规范
 
-cnc5x 是五轴数控插补的教学与论文复现库。本文件规定代码风格、设计与协作方式，以它为准。改代码前先读一遍，改完按第 11 节自查。数学公式与约定的细节见 [docs/数学约定.md](docs/数学约定.md)。
+cnc5x 是五轴数控插补的教学与论文复现库。本文件规定代码风格、设计与协作方式，以它为准。改代码前先读一遍，改完按第 12 节自查。数学公式与约定的细节见 [docs/数学约定.md](docs/数学约定.md)。
 
 ## 1. 定位
 
@@ -36,6 +36,7 @@ Curve ─▶ ToolPath ─▶ bidirectional_scan ─▶ schedule ─▶ interpola
 | `interpolator.py` | 周期插补 `interpolate`、Taylor 参数插补、进给修正插补 | calculus、profiles |
 | `metrics.py` | 评价指标 | calculus、scipy |
 | `io.py`、`datasets/` | 刀位文件读取、内置数据 | geometry |
+| `plotting.py` | notebook 里反复出现的图（进给四联图、机床轴图、刀轴箭头）和统一配色；matplotlib 是可选依赖，不在 `__init__` 中导入 | matplotlib |
 
 - 依赖只能从上往下，下层模块不能 import 上层模块。
 - 新增模块前，先确认它确实不能并入现有模块。
@@ -153,7 +154,37 @@ ruff format . && ruff check .
 - `docs/数学约定.md` 与代码的 docstring 保持一致，改公式时两处一起改。
 - 用中文写，先讲物理或几何直觉，再给公式，最后对应到代码。
 
-## 11. 完成改动前自查
+## 11. Notebook
+
+- 库里每一块设计（新模块、新算法、新刀路类）都要配一本教学 notebook，放在 `notebooks/<编号>_<主题>.ipynb`，提交时带着执行后的输出。pytest 负责守住正确性；notebook 负责讲清原理，也方便人类调试时直接看图、看数字。
+- 开头第一个代码单元格固定为：
+
+```python
+import os.path as osp
+import sys
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+
+root_path = Path(osp.abspath("")).parents[0]
+sys.path.append(str(root_path))
+
+%config InlineBackend.figure_format='retina'
+```
+
+  第二个单元格是 `import numpy as np`、`import cnc5x as cx`、`from cnc5x import plotting`、`plotting.use_style()`。
+- 结构：标题单元格列出本节要回答的问题。每一节依次是：直觉、公式、代码、图或数字、要点。结尾是"练习"和"延伸阅读"。
+- **图里的文字（标题、坐标轴、图例、标注）一律用英文**，避免中文字体缺失。Markdown 用中文。
+- notebook 里行内公式用 `$...$`，因为有的渲染器会把 `\(` 当转义吃掉；独立公式仍用 `$$` 且各自单独占一行。
+- 画图规则：
+  - 颜色按 `plotting.COLORS` 的固定顺序分配，同一实体在整本 notebook 里颜色不变；
+  - 参考数据用 `GRAY`，上限用 `LIMIT` 虚线；
+  - 不用双 y 轴；
+  - 两个及以上系列要有图例。
+- 每个主要结论配一个带独立参考值的检查单元格（打印误差并 `assert`）。Markdown 里引用的数字必须和执行输出一致。
+- 单本 notebook 的执行时间不超过 60 秒。ruff 同样检查 notebook。
+
+## 12. 完成改动前自查
 
 - [ ] 一个没读过这段代码的人能在 5 分钟内看懂
 - [ ] 没有引入新的抽象层、全局状态或 epsilon

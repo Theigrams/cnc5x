@@ -62,6 +62,27 @@ def test_constrained_least_squares_matches_slsqp():
     assert np.abs(curve(0.0) - Q[0]).max() < 1e-12 and np.abs(curve(0.0, 1) - [3, 0]).max() < 1e-10
 
 
+def test_redundant_constraints_are_rejected_with_reason():
+    u = np.linspace(0, 1, 20)
+    Q = np.column_stack([u, u**2])
+    knots = fitting.approximation_knots(u, 5, 3)
+    duplicated = [(0.0, 0, Q[0]), (0.0, 0, Q[0])]
+    too_many = [(x, 0, [x, x**2]) for x in np.linspace(0, 1, 6)]  # 6 条约束，只有 5 个控制点
+    for constraints in (duplicated, too_many):
+        with pytest.raises(ValueError, match="线性相关"):
+            fitting.fit_bspline(Q, u, knots, constraints=constraints)
+
+
+def test_conditions_outside_the_parameter_domain_are_rejected():
+    knots = np.r_[[0.0] * 6, [1.0] * 6]
+    conditions = [(0, 1, [1, 0]), (0, 2, [0, 0]), (1, 2, [0, 0]), (1.5, 1, [0, 1])]  # 最后一个在 [0, 1] 之外
+    with pytest.raises(ValueError, match="参数域"):
+        fitting.interpolate_bspline([[0, 0], [1, 1]], [0, 1], 5, knots=knots, derivatives=conditions)
+    u = np.linspace(0, 1, 20)
+    with pytest.raises(ValueError, match="参数域"):
+        fitting.fit_bspline(np.c_[u, u], u, fitting.approximation_knots(u, 6, 3), constraints=[(-0.5, 0, [0, 0])])
+
+
 def test_quintic_hermite_matches_closed_form():
     rng = np.random.default_rng(7)
     p0, p1, v0, v1, a0, a1 = rng.normal(size=(6, 3))

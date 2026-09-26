@@ -89,6 +89,23 @@ def basis_matrix(knots, degree, parameters, order=0):
     return si.BSpline(knots, np.eye(n), degree)(np.asarray(parameters, dtype=float), nu=order)
 
 
+def condition_rows(knots, degree, conditions):
+    """条件 C⁽ᵏ⁾(ū) = D 的线性方程 A P = b：A 的每行是 k 阶基函数在 ū 处的值，形状 (条件数, n)。
+
+    conditions：[(ū, k, D), ...]。ū 必须落在参数域 [t_p, t_{n}] 内（允许相对 ROUNDING 的舍入），
+    否则 scipy 会按端点多项式外推，条件其实加在了曲线之外。
+    """
+    lo, hi = knots[degree], knots[-degree - 1]
+    tol = tolerances.ROUNDING * max(1.0, hi - lo)
+    x = np.array([c[0] for c in conditions], dtype=float)
+    if np.any((x < lo - tol) | (x > hi + tol)):
+        raise ValueError(f"条件的参数 ū = {x} 超出参数域 [{lo}, {hi}]")
+    x = np.clip(x, lo, hi)
+    A = np.vstack([basis_matrix(knots, degree, [xi], k) for xi, (_, k, _) in zip(x, conditions)])
+    b = np.vstack([np.reshape(D, (1, -1)) for _, _, D in conditions])
+    return A, b
+
+
 # ---------- 插值与逼近 ----------
 
 
@@ -107,9 +124,10 @@ def interpolate_bspline(points, parameters, degree=3, knots=None, derivatives=()
         raise ValueError("参数必须严格递增")
     knots = averaged_knots(u, degree) if knots is None else np.asarray(knots, dtype=float)
     rows, values = [si.BSpline.design_matrix(u, knots, degree)], [Q.reshape(len(u), -1)]
-    for x, k, D in derivatives:
-        rows.append(sparse.csr_array(basis_matrix(knots, degree, [x], k)))
-        values.append(np.reshape(D, (1, -1)))
+    if derivatives:
+        A, b = condition_rows(knots, degree, derivatives)
+        rows.append(sparse.csr_array(A))
+        values.append(b)
     M = sparse.vstack(rows).tocsc()
     if M.shape[0] != M.shape[1]:
         raise ValueError(f"条件数 {M.shape[0]} 与控制点数 {M.shape[1]} 不相等")
@@ -125,7 +143,7 @@ def fit_bspline(points, parameters, knots, degree=3, weights=None, constraints=(
     无约束时解法方程 NᵀWN P = NᵀWQ；有约束时引入 Lagrange 乘子 λ，解 KKT 方程组
         [NᵀWN  Aᵀ] [P]   [NᵀWQ]
         [A     0 ] [λ] = [b   ]
-    （The NURBS Book §9.4.2）。
+    （The NURBS Book §9.4.2）。约束必须线性无关（因而不多于控制点数），否则 KKT 矩阵奇异。
     """
     u = np.asarray(parameters, dtype=float)
     Q = np.asarray(points, dtype=float).reshape(len(u), -1)
@@ -134,8 +152,9 @@ def fit_bspline(points, parameters, knots, degree=3, weights=None, constraints=(
     NtW = N.T * w
     G, rhs = NtW @ N, NtW @ Q
     if constraints:
-        A = np.vstack([basis_matrix(knots, degree, [x], k) for x, k, _ in constraints])
-        b = np.vstack([np.reshape(D, (1, -1)) for _, _, D in constraints])
+        A, b = condition_rows(knots, degree, constraints)
+        if np.linalg.matrix_rank(A) < len(A):
+            raise ValueError(f"{len(A)} 条约束线性相关（或多于控制点数 {N.shape[1]}），KKT 方程组奇异")
         G = np.block([[G, A.T], [A, np.zeros((len(A), len(A)))]])
         rhs = np.vstack([rhs, b])
     P = np.linalg.solve(G, rhs)[: N.shape[1]]

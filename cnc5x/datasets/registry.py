@@ -92,7 +92,9 @@ REGISTRY = {
     },
     "line_end_snap_sweep90": {
         "file": "line_end_snap_sweep90.npz",
-        "description": "39 点，同一条直线；刀轴前 95% 行程竖直，末端 0.5 mm 内急转到 90°（逆解分支压力测试）",
+        "description": "39 点，同一条直线；前 95% 行程（19 段 × 0.91 mm）刀轴倾角从 8.1° 缓变到 9.7°，"
+        "末端 19 段 × 0.046 mm（约 0.87 mm）内急转到 90°（逆解分支压力测试）。"
+        "旧描述写作'前 95% 竖直、末端 0.5 mm'，与数据不符，已按实测改正",
         "source": _HUST_SOURCE.format("Commands.mat"),
         "reference": None,
     },
