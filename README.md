@@ -7,13 +7,13 @@ Curve ─▶ ToolPath ─▶ bidirectional_scan ─▶ schedule ─▶ interpola
 曲线      刀路         前瞻                  速度规划     插补           评价
 ```
 
-## 安装
+## 环境
 
-使用现有的 `gpt` 环境做可编辑安装：
+不安装，在仓库里原地使用，Python 环境用 conda 的 `gpt`：
 
-```bash
-/Users/theigrams/miniforge3/envs/gpt/bin/python -m pip install --no-deps --no-build-isolation -e /Users/theigrams/Desktop/cnc5x
-```
+- 测试靠 `pyproject.toml` 里的 `pythonpath = ["."]` 找到库；
+- 示例在仓库根目录用 `python -m examples.xxx` 运行；
+- notebook 的第一个单元格把仓库根目录加进 `sys.path`。
 
 运行依赖只有 NumPy 和 SciPy。测试另需 SymPy 与 mpmath，画图和 notebook 需要 Matplotlib 与 Jupyter。
 
@@ -86,7 +86,7 @@ cx.metrics.junction_jumps(path.curves).max()                                    
 
 ## 教学 notebook
 
-每本按"直觉 → 公式 → 代码 → 图或数字 → 要点"组织，关键结论都有带独立参考值的检查单元格。提交时带着执行后的输出，每本执行不到 10 秒。
+每本按"直觉 → 公式 → 代码 → 图或数字 → 要点"组织，关键结论都有带独立参考值的检查单元格。notebook 暂时只在本地保留，不在版本库里。
 
 | notebook | 内容 |
 |---|---|

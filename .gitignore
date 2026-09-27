@@ -28,5 +28,13 @@ coverage.xml
 # 运行输出
 output/
 
-# notebook 本地构建工具
-notebooks/_build/
+# notebook（含 _build 生成脚本）暂时只在本地保留
+notebooks/
+
+# 废弃的文档与材料（本地保留，不纳入版本库）
+_废弃/
+
+# 本地文档与其他工具的配置，不纳入版本库
+docs/入门报告/
+.zcode/
+.zcodeignore
