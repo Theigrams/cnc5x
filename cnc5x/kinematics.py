@@ -16,9 +16,9 @@ w = 0（刀轴平行于 C 轴）时 C 不定，这是运动学奇异点（极点
 
 import numpy as np
 
-from . import tolerances
-from .calculus import acos_derivatives, arg_derivatives, compose, product
-from .geometry import rotation, unit
+from .utils import tolerances
+from .utils.calculus import acos_derivatives, arg_derivatives, compose, product
+from .utils.geometry import rotation, unit
 
 # 绕 x、y、z 轴旋转的生成元 K：dR/dθ = K R
 GENERATORS = {

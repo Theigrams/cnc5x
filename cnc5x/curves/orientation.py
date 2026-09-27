@@ -9,10 +9,10 @@ PoseCurve           five-axis tool pose [p, o]: a tip curve and a tool axis curv
 
 import numpy as np
 
-from . import tolerances
-from .calculus import compose, inverse_derivatives, product, speed_derivatives, unit_derivatives
-from .curves import Curve
-from .geometry import angle_between, unit
+from ..utils import tolerances
+from ..utils.calculus import compose, inverse_derivatives, product, speed_derivatives, unit_derivatives
+from ..utils.geometry import angle_between, unit
+from .curve import Curve
 
 
 class GreatCircle(Curve):

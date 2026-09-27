@@ -12,7 +12,7 @@ from scipy.integrate import quad
 from scipy.optimize import minimize
 
 import cnc5x as cx
-from cnc5x import fitting
+from cnc5x.curves import fitting
 
 
 @pytest.mark.parametrize("degree", [3, 5])

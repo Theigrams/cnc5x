@@ -42,27 +42,49 @@ cnc5x 是一个关于五轴数控插补的库，主要面向数学原理的演�
   - 以各轴约束为主的进给优化（Sencer 2008、Beudaert 2012 等）。
 - `schedule` 只负责第一类，不再往里叠加第二类的启发式。第二类另写调度函数，出口同样是 Profile 接口。
 
-| 模块 | 职责 | 可以依赖 |
-| --- | --- | --- |
-| `tolerances.py` | 全库的数值容差，每个值旁边写明理由 | 无 |
-| `calculus.py` | 三阶链式法则 `compose`、Leibniz `product`，以及单位化、反函数、arccos、辐角的导数 | numpy |
-| `geometry.py` | 单位化、夹角、折线切向与转角、旋转矩阵、曲率 | numpy |
-| `curves.py` | `Curve` 基类、自适应弧长表，Line、Bezier、BSpline、NURBS、SubCurve、Reparameterized | calculus、geometry、tolerances、scipy |
-| `orientation.py` | 刀轴曲线：GreatCircle、UnitDirection、DualCurveDirection、SphericalCurve；五轴刀位曲线 PoseCurve | calculus、curves、geometry、tolerances |
-| `fitting.py` | 参数化、B 样条插值与（带约束）最小二乘、Hermite 与拐角过渡、单调插值、进给修正多项式、球坐标刀轴、五轴刀位样条（`pose_spline`、`dual_spline`） | curves、orientation、scipy |
-| `limits.py` | 几何限速、DriveLimits、各轴约束区间、时间缩放倍数 | numpy |
-| `toolpath.py` | Block、ToolPath 及 PolylinePath、LinearPath、HermiteCornerPath、CurvePath | curves、orientation、fitting、limits |
-| `kinematics.py` | 双转台正逆解与机床轴解析导数 | calculus、geometry |
-| `profiles.py` | 分段恒 jerk 进给轮廓，七段、五段 S 曲线 | scipy |
-| `look_ahead.py`、`scheduler.py` | 双向扫描、进给包络、整条刀路的速度规划 | profiles、limits |
-| `interpolator.py` | 周期插补 `interpolate`、Taylor 参数插补、进给修正插补 | calculus、profiles |
-| `metrics.py` | 评价指标 | calculus、geometry、scipy |
-| `io.py`、`datasets/` | 刀位文件读取、内置数据 | geometry |
-| `plotting.py` | notebook 里反复出现的图（进给四联图、机床轴图、刀轴箭头）和统一配色；matplotlib 是可选依赖，不在 `__init__` 中导入 | matplotlib |
+目录按流程阶段组织，从上往下读就是上面的流程图；`utils/` 是辅助工具，第一次读可以跳过：
 
-- 依赖只能从上往下，下层模块不能 import 上层模块。
+```
+cnc5x/
+├── utils/          辅助工具：容差、导数运算、向量几何、画图
+├── curves/         曲线：全库的数学核心
+├── toolpath.py     刀路
+├── kinematics.py   机床（双转台运动学）
+├── feedrate/       进给规划
+├── interpolator.py 插补
+├── metrics.py      评价
+└── datasets/       刀位文件读取与内置数据
+```
+
+| 位置 | 职责 | 可以依赖 |
+| --- | --- | --- |
+| `utils/tolerances.py` | 全库的数值容差，每个值旁边写明理由 | 无 |
+| `utils/calculus.py` | 三阶链式法则 `compose`、Leibniz `product`，以及单位化、反函数、arccos、辐角的导数 | numpy |
+| `utils/geometry.py` | 单位化、夹角、折线切向与转角、旋转矩阵、曲率 | numpy |
+| `utils/plotting.py` | notebook 里反复出现的图（进给四联图、机床轴图、刀轴箭头）和统一配色；matplotlib 是可选依赖，不在 `__init__` 中导入 | matplotlib |
+| `curves/curve.py` | 曲线接口：`Curve` 基类（导数栈、对弧长求导、弧长）、取子段 SubCurve、换参数 Reparameterized | utils、arclength |
+| `curves/spline.py` | 具体曲线：Line、Bezier、BSpline、NURBS | curve、scipy |
+| `curves/arclength.py` | 自适应弧长表 ArcLengthTable | utils、scipy |
+| `curves/orientation.py` | 刀轴曲线：GreatCircle、UnitDirection、DualCurveDirection、SphericalCurve；五轴刀位曲线 PoseCurve | utils、curve |
+| `curves/fitting.py` | 参数化、B 样条插值与（带约束）最小二乘、Hermite 与拐角过渡、单调插值、进给修正多项式、球坐标刀轴、五轴刀位样条（`pose_spline`、`dual_spline`） | utils、curve、spline、orientation、scipy |
+| `toolpath.py` | Block、ToolPath 及 PolylinePath、LinearPath、HermiteCornerPath、CurvePath | utils、curves；暂时还有 `feedrate.limits`（反向依赖，P4 消除） |
+| `kinematics.py` | 双转台正逆解与机床轴解析导数 | utils |
+| `feedrate/limits.py` | 几何限速、DriveLimits、各轴约束区间、时间缩放倍数 | numpy |
+| `feedrate/profiles.py` | 分段恒 jerk 进给轮廓，七段、五段 S 曲线 | utils、scipy |
+| `feedrate/look_ahead.py`、`feedrate/scheduler.py` | 双向扫描、进给包络、整条刀路的速度规划 | utils、profiles、limits |
+| `interpolator.py` | 周期插补 `interpolate`、Taylor 参数插补、进给修正插补 | utils、feedrate |
+| `metrics.py` | 评价指标 | utils、scipy |
+| `datasets/` | 刀位文件读取 `io.read_cl`、内置数据 | utils |
+
+- **依赖只能从下往上**，不能反过来：
+  - `utils` 在最底层，不依赖 cnc5x 的任何其他部分；
+  - `curves`、`kinematics` 只依赖 `utils`；`toolpath` 依赖 `curves`，以后可能依赖 `kinematics`（在机床轴空间里光顺、处理奇异点）；
+  - `feedrate` 只依赖 `utils`，刀路和机床只通过接口使用（第 3.6、3.9 条），不导入它们；
+  - `interpolator` 依赖 `feedrate`；`metrics` 在最上层。
+- **只有一个文件的阶段保持为模块**（`toolpath.py`、`kinematics.py`、`interpolator.py`、`metrics.py`），有了第二个文件再升级成包，例如 `kinematics.py` 加上偏置、行程、`DriveLimits` 后成为 `machine/`。
+- 子包的 `__init__.py` 只写一段说明（包里有什么、可以依赖谁），不做导出；对外导出只在 `cnc5x/__init__.py` 一处。
 - 新增模块前，先确认它确实不能并入现有模块。
-- 模块表只在这里维护，README 只做简介和快速上手，不重复这张表。
+- 这张表只在这里维护，README 只做简介和快速上手，不重复这张表。
 
 ## 3. 核心约定（改动时必须保持）
 
@@ -97,7 +119,7 @@ cnc5x 是一个关于五轴数控插补的库，主要面向数学原理的演�
      - 只支持 AC、BC 双转台（第 1 节）；
      - 旋转轴偏置、行程等参数用构造参数扩展，零偏置是其特例。偏置等到迁移的论文真正需要时再加；
      - 已有类的约定（旋转顺序、正方向、刀轴指向）不改。
-10. **容差**集中在 `tolerances.py`，公式里不写字面量容差。
+10. **容差**集中在 `utils/tolerances.py`，公式里不写字面量容差。
 
 **待改的接口**：已知的设计问题（插补输入、限速参数、`get_v_limit`、`PoseCurve` 继承 `Curve` 及其位置、五轴判断、论文参数命名等）逐条记录在 [docs/待修复问题.md](docs/待修复问题.md)，计划在逐模块审查之前改掉。改掉之前，新代码不要依赖或扩大这些用法。
 
@@ -296,7 +318,7 @@ sys.path.append(str(root_path))
 %config InlineBackend.figure_format='retina'
 ```
 
-  第二个单元格是 `import numpy as np`、`import cnc5x as cx`、`from cnc5x import plotting`、`plotting.use_style()`。
+  第二个单元格是 `import numpy as np`、`import cnc5x as cx`、`from cnc5x.utils import plotting`、`plotting.use_style()`。
 
 - 结构：标题单元格列出本节要回答的问题。每一节依次是：直觉、公式、代码、图或数字、要点。结尾是"练习"和"延伸阅读"。
 - 讲一个算法时，先给教科书上的朴素做法并量出它的问题，再引出库里的做法。例如弧长表：先用固定 512 段弦长加线性插值（`~/Desktop/github-repo/cnc_interpolation` 的做法），在不均匀节点的样条上进给波动约 12%，再看自适应表如何把误差压到 1e-8 mm。

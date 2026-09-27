@@ -12,8 +12,8 @@ from typing import Optional
 
 import numpy as np
 
-from ..geometry import unit
-from ..io import read_cl
+from ..utils.geometry import unit
+from .io import read_cl
 from .registry import REGISTRY
 
 DATA_DIR = Path(__file__).parent / "data"

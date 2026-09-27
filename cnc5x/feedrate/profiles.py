@@ -9,7 +9,7 @@
 import numpy as np
 from scipy.optimize import brentq
 
-from . import tolerances
+from ..utils import tolerances
 
 
 def advance(state, jerk, T):

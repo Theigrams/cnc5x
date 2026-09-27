@@ -12,7 +12,7 @@ from cnc5x import (
     fit_bspline,
     interpolate_bspline,
 )
-from cnc5x.fitting import approximation_knots, averaged_knots
+from cnc5x.curves.fitting import approximation_knots, averaged_knots
 
 
 def test_great_circle():

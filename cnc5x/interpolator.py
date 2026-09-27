@@ -10,8 +10,8 @@ from typing import Optional
 
 import numpy as np
 
-from .calculus import compose
-from .profiles import align_period
+from .feedrate.profiles import align_period
+from .utils.calculus import compose
 
 
 @dataclass

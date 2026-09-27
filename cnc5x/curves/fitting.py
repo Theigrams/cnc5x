@@ -15,11 +15,12 @@ from scipy import interpolate as si
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
 
-from . import tolerances
-from .calculus import inverse_derivatives, speed_derivatives
-from .curves import Bezier, BSpline, Reparameterized
-from .geometry import angle_between, unit
+from ..utils import tolerances
+from ..utils.calculus import inverse_derivatives, speed_derivatives
+from ..utils.geometry import angle_between, unit
+from .curve import Reparameterized
 from .orientation import DualCurveDirection, PoseCurve, SphericalCurve, UnitDirection
+from .spline import Bezier, BSpline
 
 # ---------- 参数化与节点 ----------
 

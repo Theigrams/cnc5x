@@ -12,7 +12,7 @@ from cnc5x import (
     schedule,
     seven_phase,
 )
-from cnc5x.profiles import transition_distance
+from cnc5x.feedrate.profiles import transition_distance
 
 
 def dense(profile, n=20001):

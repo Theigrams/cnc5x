@@ -4,8 +4,8 @@
 import numpy as np
 from scipy.spatial import cKDTree
 
-from .calculus import speed_derivatives
-from .geometry import angle_between
+from .utils.calculus import speed_derivatives
+from .utils.geometry import angle_between
 
 
 def path_deviation(points, vertices):

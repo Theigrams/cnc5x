@@ -17,8 +17,8 @@ from cnc5x import (
     seven_phase,
     taylor_interpolate,
 )
-from cnc5x.calculus import compose
 from cnc5x.toolpath import Block
+from cnc5x.utils.calculus import compose
 
 CURVE = BSpline([[0, 0], [10, 25], [25, -10], [40, 30], [55, 0], [70, 20]], 3)
 

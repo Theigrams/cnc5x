@@ -10,7 +10,7 @@
 import numpy as np
 
 from cnc5x import BSpline, PolylinePath, geometric_limit, rodrigues, unit
-from cnc5x.geometry import to_3d
+from cnc5x.utils.geometry import to_3d
 
 KNOTS = np.array([0, 0, 0, 0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1, 1, 1, 1])
 

@@ -66,23 +66,7 @@ cx.metrics.junction_jumps(path.curves).max()                                    
 
 ## 模块
 
-| 模块 | 内容 |
-|---|---|
-| `curves` | `Line`、`Bezier`、`BSpline`、`NURBS`、`SubCurve`、`Reparameterized`；误差受控的自适应弧长表 `ArcLengthTable` |
-| `orientation` | 刀轴曲线：`GreatCircle`（slerp）、`UnitDirection`、`DualCurveDirection`（双样条刀轴）、`SphericalCurve`（球坐标）；五轴刀位曲线 `PoseCurve`（刀尖、刀轴两条曲线的组合） |
-| `fitting` | 弦长与角度参数化；B 样条插值、（带约束）最小二乘，方程自己列；`hermite`（任意阶两点 Hermite）、`monotone_interpolate`（C² 单调插值，用于参数同步）、`feed_correction`（进给修正多项式）、`spherical_spline`；五轴刀位样条 `pose_spline`（可让刀轴按自己的角度参数化再同步）、`dual_spline`；拐角过渡 `hermite_transition` |
-| `toolpath` | `Block`、`ToolPath` 基类，内置 `LinearPath`、`HermiteCornerPath`、`CurvePath` |
-| `kinematics` | `TableTilting("AC" / "BC")`：正逆解、C 角连续展开、行程限位下的分支与整圈选择、机床轴解析导数、极点处理 |
-| `profiles` | 分段恒 jerk 轮廓 `Profile`，七段、五段 S 曲线，时间缩放与周期对齐 |
-| `limits` | 弓高误差（含定义域外的饱和）、法向加速度与法向 jerk 限速；`DriveLimits`、各轴匀速限速、时间缩放倍数；各轴约束下切向加速度与 jerk 的可行区间（供逐周期调度用，`schedule` 不用） |
-| `look_ahead`、`scheduler` | 双向扫描；进给包络 `feed_envelope`；整条刀路的速度规划 `schedule` |
-| `interpolator` | `interpolate`（向量化周期插补）、`taylor_interpolate`（经典 Taylor 参数插补）、`correction_interpolate`（进给修正多项式插补） |
-| `metrics` | 路径偏差、拐角误差、弓高误差、进给波动、切向速度（及加速度、jerk）、轴峰值、连接处的连续性（五轴时刀尖与刀轴分列）、五轴非线性误差（周期内各轴线性插值引起的刀位偏差） |
-| `tolerances` | 全库的数值容差，每个值旁边写明理由 |
-| `io`、`datasets` | 读 APT（`GOTO/`）与纯数字刀位文件；内置 11 条平面轮廓、9 组五轴刀位 |
-| `plotting` | notebook 里反复出现的图（进给四联图、机床轴图、刀轴箭头）与统一配色；依赖 Matplotlib，不在 `cnc5x/__init__` 中导入 |
-
-公式、约定与推导见 [docs/数学约定.md](docs/数学约定.md)，代码风格与设计规范见 [CLAUDE.md](CLAUDE.md)。
+库按流程阶段组织：`curves/`（曲线）→ `toolpath.py`（刀路）→ `feedrate/`（进给规划）→ `interpolator.py`（插补）→ `metrics.py`（评价）。`kinematics.py` 是双转台运动学，`datasets/` 是刀位文件读取与内置数据，`utils/` 是辅助工具（画图用 `from cnc5x.utils import plotting`）。常用的类和函数都从顶层导出，写 `cx.xxx` 即可。各模块的职责与依赖见 [CLAUDE.md 第 2 节](CLAUDE.md)。
 
 ## 教学 notebook
 

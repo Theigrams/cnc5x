@@ -5,7 +5,7 @@
 
 import numpy as np
 
-from . import tolerances
+from ..utils import tolerances
 from .limits import drive_limit, geometric_limit
 from .look_ahead import bidirectional_scan
 from .profiles import concatenate, five_phase, seven_phase

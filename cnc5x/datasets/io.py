@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-from .geometry import unit
+from ..utils.geometry import unit
 
 
 def read_cl(path):

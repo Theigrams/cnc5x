@@ -5,7 +5,7 @@ from scipy.integrate import quad
 from scipy.optimize import brentq
 
 from cnc5x import NURBS, Bezier, BSpline, Line, Reparameterized, SubCurve
-from cnc5x.tolerances import ARC_LENGTH
+from cnc5x.utils.tolerances import ARC_LENGTH
 
 # 与 cnc_interpolation/tests/test_curve_bspline.py 相同的曲线
 CONTROL_POINTS = np.array([[5.0, 5.0], [10.0, 10.0], [20.0, 15.0], [35.0, 15.0], [45.0, 10.0], [50.0, 5.0]])

@@ -6,7 +6,7 @@
 import numpy as np
 
 from cnc5x import DriveLimits, chord_error_limit, drive_limit, time_scale_factor
-from cnc5x.limits import acceleration_interval, jerk_interval
+from cnc5x.feedrate.limits import acceleration_interval, jerk_interval
 
 TS = 0.001
 

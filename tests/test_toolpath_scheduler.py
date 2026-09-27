@@ -54,8 +54,8 @@ def test_corner_blocks_keep_orientation_on_straight_parts():
 def test_block_rejects_rotation_without_tip_motion():
     rotation = cx.PoseCurve(cx.Line([1, 2, 3], [1, 2, 3]), cx.GreatCircle([0, 0, 1], [0, 0.6, 0.8]))
     with pytest.raises(ValueError):
-        cx.toolpath.Block([rotation])
-    cx.toolpath.Block([cx.Line([1, 2], [1, 2]), cx.Line([1, 2], [3, 4])])  # 纯粹的零长度段照常去掉
+        cx.Block([rotation])
+    cx.Block([cx.Line([1, 2], [1, 2]), cx.Line([1, 2], [3, 4])])  # 纯粹的零长度段照常去掉
 
 
 def test_envelope_bounds_feed_on_full_circle():

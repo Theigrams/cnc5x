@@ -1,6 +1,6 @@
 """画图辅助：教学 notebook 里反复出现的几种图。
 
-matplotlib 是可选依赖，所以这个模块不在 cnc5x/__init__ 里导入，用时写 `from cnc5x import plotting`。
+matplotlib 是可选依赖，所以这个模块不在 cnc5x/__init__ 里导入，用时写 `from cnc5x.utils import plotting`。
 这里只放 notebook 之间重复的图（进给四联图、机床轴图、刀轴箭头）；一次性的图直接在 notebook 里画，
 读者能看到每一行 matplotlib 代码。图中文字一律用英文，避免中文字体缺失。
 """
