@@ -12,9 +12,10 @@ from .curve import Curve
 
 
 class Line(Curve):
-    """Line segment C(u) = P₀ + u (P₁ − P₀), u ∈ [0, 1].
+    """直线段 C(u) = P₀ + u (P₁ − P₀)，u ∈ [0, 1]。
 
-    The arc length is analytic, s = u·|P₁ − P₀|, so no arc-length table is built.
+    弧长有解析式 s = u·|P₁ − P₀|，所以覆盖了 length、length_at、u_at_length，不建弧长表。零长度的
+    线段允许构造（五轴里刀尖不动、只转刀轴），但求弧长参数时报错。
 
     Args:
         start (dim,): Start point P₀.
@@ -51,15 +52,16 @@ class Line(Curve):
 
 
 class BSpline(Curve):
-    """B-spline curve C(u) = Σᵢ Nᵢ,ₚ(u) Pᵢ, evaluated by scipy.interpolate.BSpline.
+    """B 样条曲线 C(u) = Σᵢ Nᵢ,ₚ(u) Pᵢ。
 
-    The domain is [knots[p], knots[n]] as given, not normalized. At an interior knot the
-    derivatives are right limits; at the end of the domain, left limits.
+    求值交给 scipy.interpolate.BSpline：基函数求值是数值内核，自己重写不增加理解（CLAUDE.md 第 5 节）。
+    参数域保持 [knots[p], knots[n]]，不归一化到 [0, 1]，这样切开、拼接、重参数化之后参数都能对上。
+    内部节点处导数取右极限，参数域末端取左极限。
 
     Args:
         control_points (n, dim): Control points Pᵢ.
         degree (int): Degree p, 1 ≤ p < n.
-        knots (n + p + 1,): Non-decreasing knot vector; defaults to the uniform clamped one on [0, 1].
+        knots (n + p + 1,): Non-decreasing knot vector; defaults to uniform clamped on [0, 1].
     """
 
     def __init__(self, control_points, degree=3, knots=None):
@@ -92,17 +94,18 @@ class BSpline(Curve):
         return np.stack([self._spline(u, nu=k) if k <= self.degree else zero for k in range(order + 1)])
 
     def split(self, u):
-        """Split into two B-splines at u by knot insertion up to multiplicity p (The NURBS Book §5.2).
+        """在参数 u 处把曲线分成两条 B 样条（The NURBS Book §5.2）。
 
-        Knot insertion (Boehm's algorithm) is left to scipy.interpolate.insert for the same reason
-        as evaluation: it is a numerical kernel that carries no idea of any paper. Bezier.split, by
-        contrast, writes de Casteljau by hand, because those few lines are the principle itself.
+        插入节点使 u 的重数达到 p，曲线在 u 处恰好经过一个控制点，沿它剪开，两段的几何与原曲线完全相同。
+        节点插入（Boehm 算法）交给 scipy.interpolate.insert，理由与求值相同：它是数值内核，不承载论文思想。
+        Bezier.split 则手写 de Casteljau，因为那几行本身就是原理。
 
         Args:
             u (float): Split parameter, strictly inside the domain.
 
         Returns:
-            (left, right) (BSpline, BSpline): Pieces over [lo, u] and [u, hi], same parameter.
+            left (BSpline): Piece over [domain[0], u], same parameter.
+            right (BSpline): Piece over [u, domain[1]], same parameter.
         """
         lo, hi = self.domain
         if not lo < u < hi:
@@ -126,10 +129,12 @@ class BSpline(Curve):
 
 
 class Bezier(BSpline):
-    """Bézier curve: the B-spline with knots [0]·(p+1) + [1]·(p+1), u ∈ [0, 1].
+    """Bézier 曲线：节点为 [0]·(p+1) + [1]·(p+1) 的 B 样条，u ∈ [0, 1]。
+
+    作为 BSpline 的子类，求值和求导都沿用 B 样条的实现，只有 split 换成手写的 de Casteljau。
 
     Args:
-        control_points (p + 1, dim): Control points; the degree p is their count minus one.
+        control_points (p + 1, dim): Control points; degree p = count − 1.
     """
 
     def __init__(self, control_points):
@@ -138,7 +143,17 @@ class Bezier(BSpline):
         super().__init__(control_points, degree, knots)
 
     def split(self, u):
-        """Split into two Bézier curves at u by de Casteljau's algorithm; each keeps u ∈ [0, 1]."""
+        """de Casteljau 算法：在 u 处一分为二，两段的参数都是 [0, 1]。
+
+        逐层做线性插值，每一层的首尾两点恰好是左、右两段的控制点。
+
+        Args:
+            u (float): Split parameter in (0, 1).
+
+        Returns:
+            left (Bezier): Piece over [0, u], reparameterized to [0, 1].
+            right (Bezier): Piece over [u, 1], reparameterized to [0, 1].
+        """
         if not 0 < u < 1:
             raise ValueError(f"split parameter must lie strictly inside (0, 1), got {u}")
         points = self.control_points
@@ -154,14 +169,13 @@ class Bezier(BSpline):
 
 
 class NURBS(Curve):
-    """NURBS curve: a B-spline in homogeneous coordinates H(u) = Σᵢ Nᵢ,ₚ(u) [wᵢPᵢ, wᵢ], C = A / w.
+    """NURBS 曲线：齐次坐标下的 B 样条 H(u) = Σᵢ Nᵢ,ₚ(u) [wᵢPᵢ, wᵢ]，C = A / w（A 为 H 的前 dim 维）。
 
-    With A = wC (the first dim components of H), Leibniz's rule on A = wC gives the recurrence
-    (The NURBS Book §4.3)
+    对 A = wC 用 Leibniz 法则，得到递推（The NURBS Book §4.3）
 
-        C⁽ᵏ⁾ = (A⁽ᵏ⁾ − Σᵢ₌₁ᵏ C(k, i) w⁽ⁱ⁾ C⁽ᵏ⁻ⁱ⁾) / w.
+        C⁽ᵏ⁾ = (A⁽ᵏ⁾ − Σᵢ₌₁ᵏ C(k, i) w⁽ⁱ⁾ C⁽ᵏ⁻ⁱ⁾) / w
 
-    The k-th derivative needs all lower ones, so the whole stack is computed in one recurrence.
+    k 阶导数要用到全部低阶导数，这正是 Curve 要求子类一次返回整个导数栈的原因。
 
     Args:
         control_points (n, dim): Control points Pᵢ.
