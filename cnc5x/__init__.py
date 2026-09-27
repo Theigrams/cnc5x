@@ -13,11 +13,14 @@ from .fitting import (
     angle_parameters,
     approximation_knots,
     chord_parameters,
+    dual_spline,
     feed_correction,
     fit_bspline,
     hermite,
+    hermite_transition,
     interpolate_bspline,
     monotone_interpolate,
+    pose_spline,
     spherical_spline,
 )
 from .geometry import rodrigues, rotation, unit
@@ -26,21 +29,10 @@ from .io import read_cl
 from .kinematics import TableTilting
 from .limits import DriveLimits, chord_error_limit, curvature_limit, drive_limit, geometric_limit, time_scale_factor
 from .look_ahead import bidirectional_scan, reachable_velocity
-from .orientation import DualCurveDirection, GreatCircle, SphericalCurve, UnitDirection
+from .orientation import DualCurveDirection, GreatCircle, PoseCurve, SphericalCurve, UnitDirection
 from .profiles import Profile, align_period, concatenate, five_phase, seven_phase, transition
 from .scheduler import envelope_scale, feed_envelope, schedule
-from .toolpath import (
-    Block,
-    CurvePath,
-    HermiteCornerPath,
-    LinearPath,
-    PolylinePath,
-    PoseCurve,
-    ToolPath,
-    dual_spline,
-    hermite_transition,
-    pose_spline,
-)
+from .toolpath import Block, CurvePath, HermiteCornerPath, LinearPath, PolylinePath, ToolPath
 
 __version__ = "0.4.0"
 

@@ -44,7 +44,7 @@ def test_hermite_corner_path(axes):
 def test_corner_blocks_keep_orientation_on_straight_parts():
     path = cx.HermiteCornerPath(POINTS, tolerance=0.05, chord_error=1e-3, axes=AXES)
     middle = path.blocks[1].curves[1]  # 第二个 block 中间的 G01
-    assert isinstance(middle, cx.PoseCurve) and isinstance(middle.orientation, cx.GreatCircle)
+    assert isinstance(middle, cx.PoseCurve) and isinstance(middle.axis, cx.GreatCircle)
     # 刀轴在直线部分沿原 G01 的大圆转动：接点处的刀轴与原 G01 在该处的大圆插值一致
     seg = path.segment(1)
     fraction = path.trim[0] / path.L[1]

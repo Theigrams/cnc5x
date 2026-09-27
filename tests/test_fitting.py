@@ -133,10 +133,10 @@ def test_feed_correction():
     mapping = fitting.feed_correction(curve, degree=9, continuity=3, tolerance=1e-6)
     s = np.linspace(0, curve.length, 41)[1:-1]
     u = mapping(s)[:, 0]
-    reference = [quad(lambda x: curve.speed(x), 0, ui, epsabs=1e-13, limit=200)[0] for ui in u]
+    reference = [quad(lambda x: curve.parametric_speed(x), 0, ui, epsabs=1e-13, limit=200)[0] for ui in u]
     assert np.abs(reference - s).max() < 1e-5  # 弧长误差 = ∫ 进给误差 ds，远小于 1e-6·弧长
     x = np.linspace(0, curve.length, 20001)
-    assert np.abs(curve.speed(mapping(x)[:, 0]) * mapping(x, 1)[:, 0] - 1).max() < 1e-6
+    assert np.abs(curve.parametric_speed(mapping(x)[:, 0]) * mapping(x, 1)[:, 0] - 1).max() < 1e-6
     h = 1e-6
     inner = mapping.breaks[1:-1]
     spline = si.BSpline(mapping.knots, mapping.control_points[:, 0], mapping.degree)  # 直接用 SciPy 求 4 阶导数

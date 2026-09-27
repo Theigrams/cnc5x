@@ -69,9 +69,9 @@ cx.metrics.junction_jumps(path.curves).max()                                    
 | 模块 | 内容 |
 |---|---|
 | `curves` | `Line`、`Bezier`、`BSpline`、`NURBS`、`SubCurve`、`Reparameterized`；误差受控的自适应弧长表 `ArcLengthTable` |
-| `orientation` | 刀轴曲线：`GreatCircle`（slerp）、`UnitDirection`、`DualCurveDirection`（双样条刀轴）、`SphericalCurve`（球坐标） |
-| `fitting` | 弦长与角度参数化；B 样条插值、（带约束）最小二乘，方程自己列；`hermite`（任意阶两点 Hermite）、`monotone_interpolate`（C² 单调插值，用于参数同步）、`feed_correction`（进给修正多项式）、`spherical_spline` |
-| `toolpath` | `PoseCurve`（五轴刀位）、`Block`、`ToolPath` 基类，内置 `LinearPath`、`HermiteCornerPath`、`CurvePath`，以及 `pose_spline`（可让刀轴按自己的角度参数化再同步）、`dual_spline`、`hermite_transition` |
+| `orientation` | 刀轴曲线：`GreatCircle`（slerp）、`UnitDirection`、`DualCurveDirection`（双样条刀轴）、`SphericalCurve`（球坐标）；五轴刀位曲线 `PoseCurve`（刀尖、刀轴两条曲线的组合） |
+| `fitting` | 弦长与角度参数化；B 样条插值、（带约束）最小二乘，方程自己列；`hermite`（任意阶两点 Hermite）、`monotone_interpolate`（C² 单调插值，用于参数同步）、`feed_correction`（进给修正多项式）、`spherical_spline`；五轴刀位样条 `pose_spline`（可让刀轴按自己的角度参数化再同步）、`dual_spline`；拐角过渡 `hermite_transition` |
+| `toolpath` | `Block`、`ToolPath` 基类，内置 `LinearPath`、`HermiteCornerPath`、`CurvePath` |
 | `kinematics` | `TableTilting("AC" / "BC")`：正逆解、C 角连续展开、行程限位下的分支与整圈选择、机床轴解析导数、极点处理 |
 | `profiles` | 分段恒 jerk 轮廓 `Profile`，七段、五段 S 曲线，时间缩放与周期对齐 |
 | `limits` | 弓高误差（含定义域外的饱和）、法向加速度与法向 jerk 限速；`DriveLimits`、各轴匀速限速、时间缩放倍数；各轴约束下切向加速度与 jerk 的可行区间（供逐周期调度用，`schedule` 不用） |

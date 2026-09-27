@@ -18,10 +18,10 @@ def bspline():
 
 
 def reference_length(curve, a, b):
-    def speed(x):
+    def sigma(x):
         return np.linalg.norm(curve(x, 1))
 
-    return quad(speed, a, b, points=[0.33, 0.66], epsabs=1e-13, epsrel=1e-13, limit=200)[0]
+    return quad(sigma, a, b, points=[0.33, 0.66], epsabs=1e-13, epsrel=1e-13, limit=200)[0]
 
 
 @pytest.mark.parametrize(
@@ -59,7 +59,7 @@ def test_arc_length_table(bspline):
     for s in np.linspace(0.5, bspline.length - 0.5, 7):
         u_exact = brentq(lambda x: reference_length(bspline, 0, x) - s, 0, 1, xtol=1e-15)
         # 弧长表的约定：每一段的误差（换算成长度）不超过 tolerances.ARC_LENGTH
-        assert abs(bspline.u_at_length(s) - u_exact) * bspline.speed(u_exact) < ARC_LENGTH
+        assert abs(bspline.u_at_length(s) - u_exact) * bspline.parametric_speed(u_exact) < ARC_LENGTH
         assert abs(bspline.length_at(u_exact) - s) < ARC_LENGTH
 
 
@@ -147,7 +147,8 @@ def test_nurbs_third_derivative_matches_sympy():
 
 
 def test_subcurve(bspline):
-    sub = SubCurve(bspline, 0.2, 0.7)
+    sub = bspline.restrict(0.2, 0.7)
+    assert isinstance(sub, SubCurve)
     assert np.isclose(sub.length, reference_length(bspline, 0.2, 0.7), rtol=1e-12)
     assert np.isclose(sub.u_at_length(0.0), 0.2) and np.isclose(sub.u_at_length(sub.length), 0.7)
     assert np.allclose(sub.breaks, [0.2, 0.33, 0.66, 0.7])
@@ -176,9 +177,9 @@ def test_arc_length_table_on_uneven_spline():
     rng = np.random.default_rng(3)
     for u in np.sort(rng.uniform(0, 1, 6)):
         inner = curve.breaks[(curve.breaks > 0) & (curve.breaks < u)]
-        exact = quad(lambda t: curve.speed(t), 0, u, points=inner, limit=500, epsabs=1e-12, epsrel=1e-13)[0]
+        exact = quad(lambda t: curve.parametric_speed(t), 0, u, points=inner, limit=500, epsabs=1e-12, epsrel=1e-13)[0]
         assert abs(curve.length_at(u) - exact) < 10 * ARC_LENGTH  # 各段积分误差会累加，但远小于逐段容差之和
-        assert abs(curve.u_at_length(exact) - u) * curve.speed(u) < 10 * ARC_LENGTH  # 反函数误差换算成长度
+        assert abs(curve.u_at_length(exact) - u) * curve.parametric_speed(u) < 10 * ARC_LENGTH  # 反函数误差换算成长度
 
 
 class CountingBSpline(BSpline):
@@ -202,3 +203,49 @@ def test_composite_curves_evaluate_components_once():
     CountingBSpline.calls = 0
     pose.derivatives_by_length(np.linspace(0, 1, 50))  # 弧长的导数从同一个导数栈里算
     assert CountingBSpline.calls == 2
+
+
+def test_arc_length_outside_range_raises(bspline):
+    line = Line([0, 0], [3, 4])
+    for curve in (bspline, line):
+        assert np.isclose(curve.u_at_length(curve.length * (1 + 1e-12)), curve.domain[1])  # 舍入误差以内截回
+        with pytest.raises(ValueError, match="arc length"):
+            curve.u_at_length(curve.length + 1)
+        with pytest.raises(ValueError, match="arc length"):
+            curve.u_at_length(-0.5)
+
+
+def test_zero_length_curve_has_no_arc_length_parameter():
+    from cnc5x import GreatCircle
+
+    for curve in (Line([1, 2, 3], [1, 2, 3]), GreatCircle([0, 0, 1], [0, 0, 1])):
+        assert curve.length == 0
+        with pytest.raises(ValueError, match="zero length"):
+            curve.u_at_length(0.0)
+
+
+def test_derivatives_by_length_on_circle():
+    # 半径 R 的圆按弧长的解析导数：C_s = T，C_ss = κN = −C/R²，C_sss = −κ²T（κ = 1/R）
+    R, w = 2.5, np.sqrt(0.5)
+    circle = NURBS(R * np.array([[1, 0], [1, 1], [0, 1]]), 2, [0, 0, 0, 1, 1, 1], [1, w, 1])
+    d = circle.derivatives_by_length(np.linspace(0, 1, 11))
+    C, T = d[0], d[1]
+    assert np.allclose(np.linalg.norm(T, axis=-1), 1, atol=1e-12)
+    assert np.allclose(np.sum(C * T, axis=-1), 0, atol=1e-12)  # 切向垂直于半径
+    assert np.allclose(d[2], -C / R**2, atol=1e-12)
+    assert np.allclose(d[3], -T / R**2, atol=1e-12)
+
+
+def test_pose_curve_piece_measures_only_one_component():
+    from cnc5x import Curve, GreatCircle, PoseCurve
+
+    tip = BSpline(CONTROL_POINTS[:, [0, 1, 1]] * [1, 1, 0], 3, KNOTS)
+    axis = GreatCircle([0, 0, 1], [0, 0.6, 0.8])
+    assert not isinstance(PoseCurve(tip, axis), Curve)  # 6 维 [p, o] 不是空间中的点，组合而非继承
+    u = np.linspace(0.2, 0.7, 9)
+    for along, length in (("tip", reference_length(tip, 0.2, 0.7)), ("axis", 0.5 * axis.theta)):
+        piece = PoseCurve(tip, axis, along).restrict(0.2, 0.7)
+        assert np.isclose(piece.length, length, rtol=1e-12)
+        d = piece.derivatives_by_length(u)
+        measured = d[1, :, :3] if along == "tip" else d[1, :, 3:]
+        assert np.allclose(np.linalg.norm(measured, axis=-1), 1, atol=1e-12)  # 对计量分量的弧长求导，模长为 1

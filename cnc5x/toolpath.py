@@ -11,99 +11,11 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 
 from . import tolerances
-from .curves import Curve, Line, Reparameterized, SubCurve
-from .fitting import chord_parameters, hermite, interpolate_bspline, monotone_interpolate
+from .curves import Line
+from .fitting import hermite_transition
 from .geometry import polyline_tangents, turning_angles, unit
 from .limits import geometric_limit
-from .orientation import DualCurveDirection, GreatCircle, UnitDirection
-
-
-class PoseCurve(Curve):
-    """五轴刀位曲线：刀尖 p(u) 与单位刀轴 o(u) 共用参数 u，求值得到 6 维向量 [p, o]。
-
-    弧长（进给的度量）默认只量刀尖（along="tip"，单位 mm）；刀尖不动、只转刀轴时用
-    along="axis"，按刀轴转过的角度计量（单位 rad）。
-    """
-
-    def __init__(self, position, orientation, along="tip"):
-        if position.domain != orientation.domain:
-            raise ValueError("刀尖曲线与刀轴曲线的参数域必须相同")
-        if along not in ("tip", "axis"):
-            raise ValueError('along 只能是 "tip" 或 "axis"')
-        self.position, self.orientation = position, orientation
-        self.domain = position.domain
-        self.measured = slice(0, 3) if along == "tip" else slice(3, 6)
-        self.measure = position if along == "tip" else orientation  # 计量弧长的那条曲线
-
-    @property
-    def breaks(self):
-        return np.unique(np.concatenate([self.position.breaks, self.orientation.breaks]))
-
-    def _derivatives(self, u, order):
-        return np.concatenate([self.position.derivatives(u, order), self.orientation.derivatives(u, order)], axis=-1)
-
-    def curvature(self, u):
-        return self.position.curvature(u)
-
-    # 弧长只取决于计量的那条曲线：直接用它自己的弧长表，另一条曲线不必跟着求值。
-    def speed(self, u):
-        return self.measure.speed(u)
-
-    @property
-    def length(self):
-        return self.measure.length
-
-    def length_at(self, u):
-        return self.measure.length_at(u)
-
-    def u_at_length(self, s):
-        return self.measure.u_at_length(s)
-
-
-def pose_spline(points, axes, parameters=None, degree=3, orientation_parameters=None):
-    """过全部刀位点的五轴样条：刀尖插值一条 B 样条，刀轴插值一条 B 样条后单位化。
-
-    parameters 是刀尖的参数，默认用累积弦长。orientation_parameters 缺省时刀轴与刀尖共用参数。
-    给出时（例如 fitting.angle_parameters：刀轴按自己转过的角度参数化，Yuen et al. 2013），
-    刀轴曲线 ô(w) 用自己的参数拟合，再同步到刀尖参数上：o(u) = ô(g(u))，映射 g 过节点 (uₖ, wₖ)，
-    C² 且严格递增（fitting.monotone_interpolate）。刀轴在刀位点处的取值不变，点与点之间转得
-    快慢则由刀轴自己的角度分布决定，不再被刀尖的弦长牵着走。
-    """
-    u = chord_parameters(points) if parameters is None else np.asarray(parameters, dtype=float)
-    position = interpolate_bspline(points, u, degree)
-    if orientation_parameters is None:
-        return PoseCurve(position, UnitDirection(interpolate_bspline(unit(axes), u, degree)))
-    w = np.asarray(orientation_parameters, dtype=float)
-    orientation = UnitDirection(interpolate_bspline(unit(axes), w, degree))
-    return PoseCurve(position, Reparameterized(orientation, monotone_interpolate(u, w)))
-
-
-def dual_spline(points, axes, height, parameters=None, degree=3):
-    """双样条刀路（Langeron et al. 2004）：刀尖点与沿刀轴偏移 height 的第二点
-    各插值一条 B 样条（共用参数），刀轴取两条曲线之差的方向。
-    """
-    u = chord_parameters(points) if parameters is None else parameters
-    tip = interpolate_bspline(points, u, degree)
-    top = interpolate_bspline(np.asarray(points, dtype=float) + height * unit(axes), u, degree)
-    return PoseCurve(tip, DualCurveDirection(tip, top))
-
-
-def hermite_transition(start, end, h, order=2):
-    """拐角过渡：两端直到 order 阶导数都与相邻段吻合的 Hermite 曲线（次数 2·order + 1）。
-
-    start、end 是两个接点处对刀尖弧长的导数栈 (4, dim)（见 PolylinePath.corner_ends）。过渡曲线的
-    参数 u ∈ [0, 1]，两端的参数速度都取 h（通常取两侧裁去的长度之和），端点条件为
-        dᵏC/duᵏ = hᵏ · dᵏC/dsᵏ，k = 0 … order，
-    相当于接点处 ds/du = h、更高阶导数为零，所以接点处对弧长 order 阶连续。
-    五轴时刀轴取单位化的 Hermite 曲线 o = r/|r|。端点处 r 与相邻段的单位刀轴曲线直到 order 阶
-    导数都相同，即 r = o_相邻 + O(u^{order+1})；单位化是光滑映射，又把单位向量映到自己，所以
-    r/|r| = o_相邻 + O(u^{order+1})：单位化后刀轴对刀尖弧长同样 order 阶连续（见 docs/数学约定.md）。
-    """
-    scale = (h ** np.arange(order + 1))[:, None]
-    start, end = start[: order + 1] * scale, end[: order + 1] * scale
-    if start.shape[-1] != 6:
-        return hermite(start, end)
-    return PoseCurve(hermite(start[:, :3], end[:, :3]), UnitDirection(hermite(start[:, 3:], end[:, 3:])))
+from .orientation import GreatCircle, PoseCurve
 
 
 class Block:
@@ -294,7 +206,7 @@ class HermiteCornerPath(PolylinePath):
             start, end = self.corner_ends(i, self.trim[i], self.trim[i])
             self.transitions.append(hermite_transition(start, end, 2 * self.trim[i]))
         self.curvature_peaks = np.array([curve.curvature(0.5) for curve in self.transitions])
-        halves = [(SubCurve(curve, 0.0, 0.5), SubCurve(curve, 0.5, 1.0)) for curve in self.transitions]
+        halves = [(curve.restrict(0.0, 0.5), curve.restrict(0.5, 1.0)) for curve in self.transitions]
         self.blocks = self.corner_blocks(halves)
 
     def get_v_limit(self, Ts, v_max, a_max, j_max):
@@ -327,7 +239,7 @@ class CurvePath(ToolPath):
         self.split_parameters = np.array(peaks)
         self.curvature_peaks = curve.curvature(self.split_parameters)
         bounds = np.concatenate([[lo], self.split_parameters, [hi]])
-        self.blocks = [Block([SubCurve(curve, a, b)]) for a, b in zip(bounds[:-1], bounds[1:])]
+        self.blocks = [Block([curve.restrict(a, b)]) for a, b in zip(bounds[:-1], bounds[1:])]
 
     def get_v_limit(self, Ts, v_max, a_max, j_max):
         """连接点（曲率峰值处）的速度上限：弓高误差、法向加速度、法向 jerk 三者取小。"""
