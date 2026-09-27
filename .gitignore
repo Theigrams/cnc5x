@@ -30,6 +30,7 @@ output/
 
 # notebook（含 _build 生成脚本）暂时只在本地保留
 notebooks/
+papers/*/*.ipynb
 
 # 废弃的文档与材料（本地保留，不纳入版本库）
 _废弃/
