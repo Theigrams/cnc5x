@@ -1,16 +1,15 @@
-"""刀轴曲线（取值在单位球面上），以及把刀尖曲线和刀轴曲线配成一对的五轴刀位曲线。
+"""刀轴曲线：取值在单位球面上的 Curve。刀尖与刀轴配成一对的五轴刀位曲线在 pose.py。
 
 GreatCircle         两方向之间的大圆弧（slerp）
 UnitDirection       三维向量曲线单位化
 DualCurveDirection  两条曲线之差的方向（双样条刀路）
 SphericalCurve      球坐标 (θ, φ) 曲线映到球面
-PoseCurve           五轴刀位 [p, o]：刀尖曲线与刀轴曲线共用参数
 """
 
 import numpy as np
 
 from ..utils import tolerances
-from ..utils.calculus import compose, inverse_derivatives, product, speed_derivatives, unit_derivatives
+from ..utils.calculus import compose, product, unit_derivatives
 from ..utils.geometry import angle_between, unit
 from .curve import Curve
 
@@ -144,100 +143,3 @@ class SphericalCurve(Curve):
 def _outer(f, x):
     """标量复合函数 f(x(u)) 的导数栈：f 为外函数在 x 处的 0..3 阶导数，x 为 x(u) 的导数栈。"""
     return compose(f[..., None], x[1], x[2], x[3])[..., 0]
-
-
-class PoseCurve:
-    """五轴刀位曲线：刀尖 p(u) 与单位刀轴 o(u) 共用参数 u，求值为 6 维 [p, o]。
-
-    为什么是两条曲线的组合，而不是 Curve 的子类：6 维的 [p, o] 不是空间中的点——弧长只由其中一条分量
-    决定，曲率只是刀尖的曲率——Curve 的约定它一条都不满足。以前靠在基类上开口子（measured 切片）勉强
-    继承，包装类稍不留神就会把 mm 和 rad 混在一起取模（待修复问题 P7）。导数栈仍拼成 6 维，是为了让
-    calculus.compose 对刀尖和刀轴一起换元（CLAUDE.md 第 3.7 条）。刀路按鸭子类型使用它（第 3.6 条）。
-
-    Args:
-        tip (Curve): Tool tip curve p(u), 3-D, mm.
-        axis (Curve): Unit tool axis curve o(u), 3-D, pointing from the tip to the holder.
-        along (str): Component whose arc length measures the feed: "tip" (mm), or "axis"
-            (rad, for motion that only rotates the tool axis).
-    """
-
-    def __init__(self, tip, axis, along="tip"):
-        if tip.domain != axis.domain:
-            raise ValueError("tip and axis curves must share the same parameter domain")
-        if along not in ("tip", "axis"):
-            raise ValueError(f'along must be "tip" or "axis", got {along!r}')
-        self.tip, self.axis, self.along = tip, axis, along
-        self.domain = tip.domain
-
-    @property
-    def _measured_curve(self):
-        return self.tip if self.along == "tip" else self.axis
-
-    @property
-    def breaks(self):
-        return np.unique(np.concatenate([self.tip.breaks, self.axis.breaks]))
-
-    def derivatives(self, u, order=3):
-        """[p, o] 对 u 的导数栈，只求到 `order` 阶。
-
-        Args:
-            u (...): Parameter values in `domain`.
-            order (int): Highest derivative order, 0 to 3.
-
-        Returns:
-            d (order + 1, ..., 6): Tip derivatives in d[..., :3], axis derivatives in d[..., 3:].
-        """
-        return np.concatenate([self.tip.derivatives(u, order), self.axis.derivatives(u, order)], axis=-1)
-
-    def __call__(self, u, order=0):
-        """刀位 [p, o]（order = 0），或第 order 阶导数；形状 (..., 6)。"""
-        return self.derivatives(u, order)[order]
-
-    def derivatives_by_length(self, u):
-        """[p, o] 对计量弧长 s（见 along）的导数栈。
-
-        s 的导数只由计量的那条分量求出，再用同一组 (u_s, u_ss, u_sss) 对两条分量一起换元。按刀尖计量时，
-        o_s 就是"刀尖每走 1 mm，刀轴转多少"，插补和各轴限速都要用它。
-
-        Args:
-            u (...): Parameter values in `domain`.
-
-        Returns:
-            d (4, ..., 6): d[k] = dᵏ[p, o]/dsᵏ.
-        """
-        d = self.derivatives(u)
-        measured = d[..., :3] if self.along == "tip" else d[..., 3:]
-        return compose(d, *inverse_derivatives(*speed_derivatives(measured)))
-
-    @property
-    def length(self):
-        """计量分量的弧长：按刀尖为 mm，按刀轴为 rad。"""
-        return self._measured_curve.length
-
-    def length_at(self, u):
-        return self._measured_curve.length_at(u)
-
-    def u_at_length(self, s):
-        return self._measured_curve.u_at_length(s)
-
-    def curvature(self, u):
-        """刀尖曲线的曲率，1/mm。刀路在曲率峰值处切 block、限速都只看刀尖。"""
-        return self.tip.curvature(u)
-
-    @property
-    def start_point(self):
-        return self(self.domain[0])
-
-    @property
-    def end_point(self):
-        return self(self.domain[1])
-
-    def restrict(self, a, b):
-        """[a, b] 上的一段：两条分量分别取子段，参数保持原值。
-
-        不能写成 SubCurve(pose)：SubCurve 会把 6 维一起当成一条曲线算弧长，结果错误却不报错。
-        """
-        return PoseCurve(self.tip.restrict(a, b), self.axis.restrict(a, b), self.along)
-
-    def __repr__(self):
-        return f"PoseCurve(tip={self.tip!r}, axis={self.axis!r}, along={self.along!r})"

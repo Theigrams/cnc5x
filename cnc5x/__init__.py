@@ -14,17 +14,15 @@ from .curves.fitting import (
     angle_parameters,
     approximation_knots,
     chord_parameters,
-    dual_spline,
     feed_correction,
     fit_bspline,
     hermite,
-    hermite_transition,
     interpolate_bspline,
     monotone_interpolate,
-    pose_spline,
     spherical_spline,
 )
-from .curves.orientation import DualCurveDirection, GreatCircle, PoseCurve, SphericalCurve, UnitDirection
+from .curves.orientation import DualCurveDirection, GreatCircle, SphericalCurve, UnitDirection
+from .curves.pose import PoseCurve, dual_spline, hermite_transition, pose_spline
 from .curves.spline import NURBS, Bezier, BSpline, Line
 from .datasets.io import read_cl
 from .feedrate.limits import (

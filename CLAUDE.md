@@ -65,8 +65,9 @@ cnc5x/
 | `curves/curve.py` | 曲线接口：`Curve` 基类（导数栈、对弧长求导、弧长）、取子段 SubCurve、换参数 Reparameterized | utils、arclength |
 | `curves/spline.py` | 具体曲线：Line、Bezier、BSpline、NURBS | curve、scipy |
 | `curves/arclength.py` | 自适应弧长表 ArcLengthTable | utils、scipy |
-| `curves/orientation.py` | 刀轴曲线：GreatCircle、UnitDirection、DualCurveDirection、SphericalCurve；五轴刀位曲线 PoseCurve | utils、curve |
-| `curves/fitting.py` | 参数化、B 样条插值与（带约束）最小二乘、Hermite 与拐角过渡、单调插值、进给修正多项式、球坐标刀轴、五轴刀位样条（`pose_spline`、`dual_spline`） | utils、curve、spline、orientation、scipy |
+| `curves/orientation.py` | 刀轴曲线：GreatCircle、UnitDirection、DualCurveDirection、SphericalCurve | utils、curve |
+| `curves/fitting.py` | 参数化、B 样条插值与（带约束）最小二乘、Hermite、单调插值、进给修正多项式、球坐标刀轴 | utils、curve、spline、orientation、scipy |
+| `curves/pose.py` | 五轴刀位曲线 PoseCurve，以及构造它的 `pose_spline`、`dual_spline`、拐角过渡 `hermite_transition`；五轴特有的曲线代码只在这里 | utils、curve、orientation、fitting |
 | `toolpath.py` | Block、ToolPath 及 PolylinePath、LinearPath、HermiteCornerPath、CurvePath | utils、curves；暂时还有 `feedrate.limits`（反向依赖，P4 消除） |
 | `kinematics.py` | 双转台正逆解与机床轴解析导数 | utils |
 | `feedrate/limits.py` | 几何限速、DriveLimits、各轴约束区间、时间缩放倍数 | numpy |

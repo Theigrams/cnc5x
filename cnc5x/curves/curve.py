@@ -187,7 +187,7 @@ class Reparameterized(Curve):
     """复合曲线 C(g(w))：g 是严格递增的一维映射曲线，w 是新参数。
 
     用来换参数而不改几何，例如让刀轴按自己转过的角度参数化，再同步到刀尖的参数上（Yuen et al. 2013，
-    见 fitting.pose_spline）。导数由三阶链式法则 calculus.compose 得到。C 的内部节点在 w 下的原像
+    见 pose.pose_spline）。导数由三阶链式法则 calculus.compose 得到。C 的内部节点在 w 下的原像
     要并入 breaks，否则弧长积分会跨过不光滑的点；原像用 brentq 在 g 上反解。
 
     Args:

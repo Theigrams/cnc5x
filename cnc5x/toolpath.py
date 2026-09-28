@@ -10,8 +10,8 @@ self.blocks，并实现 get_v_limit。
 import numpy as np
 from scipy.optimize import minimize_scalar
 
-from .curves.fitting import hermite_transition
-from .curves.orientation import GreatCircle, PoseCurve
+from .curves.orientation import GreatCircle
+from .curves.pose import PoseCurve, hermite_transition
 from .curves.spline import Line
 from .feedrate.limits import geometric_limit  # 反向依赖：刀路不该知道限速，P4 消除
 from .utils import tolerances

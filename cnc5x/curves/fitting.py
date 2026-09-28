@@ -1,4 +1,4 @@
-"""由离散数据构造 B 样条：参数化、节点、插值、最小二乘逼近、Hermite 与拐角过渡、单调插值、进给修正、五轴刀位样条。
+"""由离散数据构造 B 样条：参数化、节点、插值、最小二乘逼近、Hermite、单调插值、进给修正、球坐标刀轴。
 
 曲线 C(u) = Σⱼ Nⱼ,ₚ(u) Pⱼ 对控制点 P 是线性的。参数 ū 处的一个条件 C⁽ᵏ⁾(ū) = D，
 就是基函数矩阵 N⁽ᵏ⁾[i, j] = Nⱼ,ₚ⁽ᵏ⁾(ūᵢ) 的一行，所以各种构造都归结为线性方程组：
@@ -18,8 +18,7 @@ from scipy.sparse.linalg import spsolve
 from ..utils import tolerances
 from ..utils.calculus import inverse_derivatives, speed_derivatives
 from ..utils.geometry import angle_between, unit
-from .curve import Reparameterized
-from .orientation import DualCurveDirection, PoseCurve, SphericalCurve, UnitDirection
+from .orientation import SphericalCurve
 from .spline import Bezier, BSpline
 
 # ---------- 参数化与节点 ----------
@@ -185,24 +184,6 @@ def hermite(start, end):
     return Bezier(b)
 
 
-def hermite_transition(start, end, h, order=2):
-    """拐角过渡：两端直到 order 阶导数都与相邻段吻合的 Hermite 曲线（次数 2·order + 1）。
-
-    start、end 是两个接点处对刀尖弧长的导数栈 (4, dim)（由 toolpath 模块里 PolylinePath 的 corner_ends 方法给出）。
-    过渡曲线的参数 u ∈ [0, 1]，两端的参数速度都取 h（通常取两侧裁去的长度之和），端点条件为
-        dᵏC/duᵏ = hᵏ · dᵏC/dsᵏ，k = 0 … order，
-    相当于接点处 ds/du = h、更高阶导数为零，所以接点处对弧长 order 阶连续。
-    五轴时刀轴取单位化的 Hermite 曲线 o = r/|r|。端点处 r 与相邻段的单位刀轴曲线直到 order 阶
-    导数都相同，即 r = o_相邻 + O(u^{order+1})；单位化是光滑映射，又把单位向量映到自己，所以
-    r/|r| = o_相邻 + O(u^{order+1})：单位化后刀轴对刀尖弧长同样 order 阶连续（见 docs/数学约定.md）。
-    """
-    scale = (h ** np.arange(order + 1))[:, None]
-    start, end = start[: order + 1] * scale, end[: order + 1] * scale
-    if start.shape[-1] != 6:
-        return hermite(start, end)
-    return PoseCurve(hermite(start[:, :3], end[:, :3]), UnitDirection(hermite(start[:, 3:], end[:, 3:])))
-
-
 def join_beziers(pieces, breaks):
     """把首尾相接的同次 Bézier 段拼成一条 B 样条，第 i 段占参数区间 [breaks[i], breaks[i+1]]。
 
@@ -315,34 +296,3 @@ def spherical_spline(axes, parameters, degree=3):
     theta = np.arccos(np.clip(o[:, 2], -1.0, 1.0))
     phi = np.unwrap(np.arctan2(o[:, 1], o[:, 0]))
     return SphericalCurve(interpolate_bspline(np.column_stack([theta, phi]), parameters, degree))
-
-
-# ---------- 五轴刀位 ----------
-
-
-def pose_spline(points, axes, parameters=None, degree=3, orientation_parameters=None):
-    """过全部刀位点的五轴样条：刀尖插值一条 B 样条，刀轴插值一条 B 样条后单位化。
-
-    parameters 是刀尖的参数，默认用累积弦长。orientation_parameters 缺省时刀轴与刀尖共用参数。
-    给出时（例如 fitting.angle_parameters：刀轴按自己转过的角度参数化，Yuen et al. 2013），
-    刀轴曲线 ô(w) 用自己的参数拟合，再同步到刀尖参数上：o(u) = ô(g(u))，映射 g 过节点 (uₖ, wₖ)，
-    C² 且严格递增（fitting.monotone_interpolate）。刀轴在刀位点处的取值不变，点与点之间转得
-    快慢则由刀轴自己的角度分布决定，不再被刀尖的弦长牵着走。
-    """
-    u = chord_parameters(points) if parameters is None else np.asarray(parameters, dtype=float)
-    tip = interpolate_bspline(points, u, degree)
-    if orientation_parameters is None:
-        return PoseCurve(tip, UnitDirection(interpolate_bspline(unit(axes), u, degree)))
-    w = np.asarray(orientation_parameters, dtype=float)
-    axis = UnitDirection(interpolate_bspline(unit(axes), w, degree))
-    return PoseCurve(tip, Reparameterized(axis, monotone_interpolate(u, w)))
-
-
-def dual_spline(points, axes, height, parameters=None, degree=3):
-    """双样条刀路（Langeron et al. 2004）：刀尖点与沿刀轴偏移 height 的第二点
-    各插值一条 B 样条（共用参数），刀轴取两条曲线之差的方向。
-    """
-    u = chord_parameters(points) if parameters is None else parameters
-    tip = interpolate_bspline(points, u, degree)
-    top = interpolate_bspline(np.asarray(points, dtype=float) + height * unit(axes), u, degree)
-    return PoseCurve(tip, DualCurveDirection(tip, top))
